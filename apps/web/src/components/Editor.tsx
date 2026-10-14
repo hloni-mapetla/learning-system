@@ -25,6 +25,18 @@ async function wikilinkSource(ctx: CompletionContext): Promise<CompletionResult 
   };
 }
 
+/** Wrap the selection in the next cloze deletion: {{cN::selection}}. */
+function wrapCloze(view: EditorView): boolean {
+  const { from, to } = view.state.selection.main;
+  if (from === to) return false;
+  const doc = view.state.doc.toString();
+  const used = [...doc.matchAll(/\{\{c(\d+)::/g)].map((m) => Number(m[1]));
+  const n = used.length ? Math.max(...used) + 1 : 1;
+  const text = view.state.sliceDoc(from, to);
+  view.dispatch({ changes: { from, to, insert: `{{c${n}::${text}}}` } });
+  return true;
+}
+
 export function Editor({
   value,
   onChange,
@@ -57,6 +69,7 @@ export function Editor({
           autocompletion({ override: [wikilinkSource], activateOnTyping: true }),
           cmPlaceholder(placeholder ?? 'Write in Markdown. [[ to link, {{c1::text}} for a cloze card.'),
           keymap.of([
+            { key: 'Mod-Shift-c', run: wrapCloze },
             {
               key: 'Escape',
               run: () => {

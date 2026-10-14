@@ -8,6 +8,10 @@ import { createSources } from './services/sources.ts';
 import { createNotes } from './services/notes.ts';
 import { createSearch } from './services/search.ts';
 import { drainEmbedQueue, enqueueAll, pendingEmbeddings, transformersEmbedder, VectorIndex, type Embedder } from './services/embeddings.ts';
+import { createSettings } from './services/settings.ts';
+import { createCards } from './services/cards.ts';
+import { createReview } from './services/review.ts';
+import { createTopics } from './services/topics.ts';
 import type { NoteDetail, SourceDetail } from './types.ts';
 
 export * from './types.ts';
@@ -16,6 +20,9 @@ export { Db } from './db.ts';
 export { NotFoundError, ValidationError, localDate } from './util.ts';
 export { transformersEmbedder, type Embedder } from './services/embeddings.ts';
 export { parseWikilinks } from './services/wikilinks.ts';
+export { humanInterval } from './services/review.ts';
+export type { Settings } from './services/settings.ts';
+export type { TopicMatch } from './services/topics.ts';
 
 export interface LoomOptions {
   /** Path to the SQLite file. Defaults to $LOOM_DB or ~/.loom/loom.db. */
@@ -43,6 +50,11 @@ export function createLoom(opts: LoomOptions = {}) {
   const notes = createNotes(ctx, tags, links);
   const index = new VectorIndex(db);
   const search = createSearch(ctx, index);
+  const settings = createSettings(db);
+  const cards = createCards(ctx, tags);
+  const review = createReview(ctx, cards, settings);
+  const topics = createTopics(ctx, search);
+  cards.syncMissingClozes();
 
   const embeddings = {
     pending: () => pendingEmbeddings(db),
@@ -54,7 +66,7 @@ export function createLoom(opts: LoomOptions = {}) {
 
   function noteDetail(id: string): NoteDetail {
     const note = notes.get(id);
-    return { ...note, ...links.forItem('note', id), cards: [] };
+    return { ...note, ...links.forItem('note', id), cards: cards.list({ noteId: id, sort: 'created' }).items };
   }
 
   function sourceDetail(id: string): SourceDetail {
@@ -63,7 +75,7 @@ export function createLoom(opts: LoomOptions = {}) {
       ...source,
       notes: notes.list({ sourceId: id, sort: 'location', limit: 1000 }).items,
       ...links.forItem('source', id),
-      cardCount: 0,
+      cardCount: cards.countForItem('source', id),
       tasks: [],
     };
   }
@@ -78,6 +90,10 @@ export function createLoom(opts: LoomOptions = {}) {
     sources,
     notes,
     search,
+    settings,
+    cards,
+    review,
+    topics,
     embeddings,
     noteDetail,
     sourceDetail,

@@ -80,6 +80,63 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
   });
   r.get('/tags', (_req, res) => res.json(loom.tags.list()));
 
+  // ---- cards ----
+  r.get('/cards', (req, res) => {
+    res.json(
+      loom.cards.list({
+        noteId: str(req.query.noteId),
+        sourceId: str(req.query.sourceId),
+        tag: str(req.query.tag),
+        type: str(req.query.type) as any,
+        state: str(req.query.state) as any,
+        suspended: req.query.suspended === undefined ? undefined : req.query.suspended === 'true',
+        sort: str(req.query.sort) as any,
+        limit: num(req.query.limit),
+        offset: num(req.query.offset),
+      }),
+    );
+  });
+  r.post('/cards', (req, res) => res.status(201).json(loom.cards.create(schemas.CardCreate.parse(req.body), 'user')));
+  r.get('/cards/:id', (req, res) =>
+    res.json({ ...loom.cards.get(req.params.id), history: loom.review.history(req.params.id) }),
+  );
+  r.patch('/cards/:id', (req, res) => res.json(loom.cards.update(req.params.id, schemas.CardPatch.parse(req.body))));
+  r.delete('/cards/:id', (req, res) => {
+    loom.cards.remove(req.params.id);
+    res.status(204).end();
+  });
+  r.post('/cards/:id/forget', (req, res) => res.json(loom.review.forget(req.params.id)));
+
+  // ---- review ----
+  r.get('/review/due', (req, res) =>
+    res.json(loom.review.due({ limit: num(req.query.limit) ?? 200, tag: str(req.query.tag) })),
+  );
+  r.get('/review/counts', (req, res) => res.json(loom.review.counts({ tag: str(req.query.tag) })));
+  r.get('/review/preview/:id', (req, res) => res.json(loom.review.preview(req.params.id)));
+  r.post('/review/undo', (req, res) => res.json(loom.review.undo(str(req.body?.cardId))));
+  r.post('/review/:id', (req, res) => {
+    const body = z
+      .object({ rating: schemas.RatingInput, durationMs: z.number().int().nonnegative().nullish(), notes: z.string().nullish() })
+      .parse(req.body);
+    res.json(loom.review.record(req.params.id, body.rating, { grader: 'self', durationMs: body.durationMs, notes: body.notes }));
+  });
+  r.get('/review/forecast', (req, res) => res.json(loom.review.forecast(num(req.query.days) ?? 30)));
+
+  // ---- settings ----
+  r.get('/settings', (_req, res) => res.json(loom.settings.get()));
+  r.patch('/settings', (req, res) => {
+    const body = z
+      .object({
+        desiredRetention: z.number().min(0.7).max(0.99),
+        maximumInterval: z.number().int().min(1),
+        newCardsPerDay: z.number().int().min(0).max(1000),
+        learnAheadMinutes: z.number().int().min(0).max(240),
+      })
+      .partial()
+      .parse(req.body);
+    res.json(loom.settings.set(body));
+  });
+
   // ---- search ----
   r.get('/search', async (req, res) => {
     const q = str(req.query.q) ?? '';

@@ -5,6 +5,8 @@ import { SourceDetailPage } from './pages/SourceDetail';
 import { NotesPage } from './pages/Notes';
 import { NoteDetailPage } from './pages/NoteDetail';
 import { SearchPage } from './pages/Search';
+import { ReviewPage } from './pages/Review';
+import { CardsPage } from './pages/Cards';
 
 const root = createRootRoute({
   component: Layout,
@@ -19,6 +21,8 @@ const routeTree = root.addChildren([
   r('/notes', NotesPage),
   r('/notes/$id', NoteDetailPage),
   r('/search', SearchPage),
+  r('/review', ReviewPage),
+  r('/cards', CardsPage),
 ]);
 
 export const router = createRouter({ routeTree, defaultPreload: false });

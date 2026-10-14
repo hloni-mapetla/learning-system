@@ -10,6 +10,8 @@ const GROUPS: [string, [string, string][]][] = [
       ['c', 'Create a note'],
       ['g s', 'Go to sources'],
       ['g n', 'Go to notes'],
+      ['g r', 'Go to review'],
+      ['g c', 'Go to cards'],
       ['?', 'This help'],
     ],
   ],
@@ -28,6 +30,18 @@ const GROUPS: [string, [string, string][]][] = [
       ['esc', 'Stop editing'],
       ['[[', 'Link autocomplete'],
       ['{{c1::…}}', 'Cloze deletion → card'],
+      ['⌘⇧C', 'Wrap selection as cloze'],
+      ['C', 'New card from note'],
+    ],
+  ],
+  [
+    'Review',
+    [
+      ['space', 'Show answer'],
+      ['1 2 3 4', 'Again / Hard / Good / Easy'],
+      ['u', 'Undo last'],
+      ['!', 'Suspend card'],
+      ['o', 'Open source note'],
     ],
   ],
 ];
@@ -38,7 +52,7 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4" onClick={onClose}>
       <div className="w-full max-w-2xl rounded-xl border border-line bg-panel p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <h2 className="mb-4 text-lg font-semibold">Keyboard shortcuts</h2>
-        <div className="grid gap-6 sm:grid-cols-3">
+        <div className="grid gap-6 sm:grid-cols-2">
           {GROUPS.map(([g, items]) => (
             <div key={g}>
               <h3 className="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">{g}</h3>

@@ -6,6 +6,8 @@ import { relTime } from '../lib/format';
 import { useHotkeys } from '../lib/hotkeys';
 import { Badge, Button, Input, Section, Select, TagInput, Textarea } from '../components/ui';
 import { Editor } from '../components/Editor';
+import { CardForm } from '../components/CardForm';
+import { STATE_TONE } from '../components/CardItem';
 import { Markdown } from '../components/Markdown';
 
 const REL_LABEL: Record<string, [string, string]> = {
@@ -67,6 +69,7 @@ export function NoteDetailPage() {
   const remove = useAction(() => api.del(`/notes/${id}`));
   const removeLink = useAction((linkId: string) => api.del(`/links/${linkId}`));
   const [editing, setEditing] = useState(!!search.edit);
+  const [addingCard, setAddingCard] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -91,7 +94,7 @@ export function NoteDetailPage() {
   };
   useEffect(() => () => flush(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useHotkeys({ e: () => setEditing(true) }, []);
+  useHotkeys({ e: () => setEditing(true), 'shift+c': () => setAddingCard(true), C: () => setAddingCard(true) }, []);
 
   const dangling = useMemo(
     () => new Set((n?.outgoing ?? []).filter((l) => !l.to && l.targetTitle).map((l) => l.targetTitle!.toLowerCase())),
@@ -190,6 +193,29 @@ export function NoteDetailPage() {
               }}
             />
           </div>
+        </Section>
+        <Section
+          title={`Cards (${n.cards.length})`}
+          actions={<button onClick={() => setAddingCard(true)} className="text-xs text-accent hover:underline">+ card <span className="font-mono text-faint">C</span></button>}
+        >
+          {addingCard && (
+            <div className="mb-2">
+              <CardForm refs={[{ type: 'note', id: n.id, title: n.title, kind: n.kind }]} onDone={() => setAddingCard(false)} />
+            </div>
+          )}
+          <ul className="space-y-1.5">
+            {n.cards.map((c) => (
+              <li key={c.id}>
+                <Link to="/cards" search={{ card: c.id } as any} className="flex items-start gap-1.5 text-sm hover:text-accent">
+                  <Badge tone={STATE_TONE[c.state]}>{c.type}</Badge>
+                  <span className="line-clamp-2">{c.prompt}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {!n.cards.length && !addingCard && (
+            <p className="text-xs text-faint">Select text while editing and press ⌘⇧C to make a cloze.</p>
+          )}
         </Section>
         <LinkList title="Links" links={n.outgoing} dir="out" onRemove={(lid) => removeLink.mutate(lid)} />
         <LinkList title="Backlinks" links={n.backlinks} dir="in" onRemove={(lid) => removeLink.mutate(lid)} />

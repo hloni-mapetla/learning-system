@@ -9,43 +9,40 @@ export function isTyping(e: KeyboardEvent): boolean {
 type Handler = (e: KeyboardEvent) => void;
 
 /**
- * Register keyboard shortcuts. Keys: "mod+k", "shift+?", "j", or two-key sequences "g n".
- * Plain keys are ignored while typing; "mod+" combos always fire.
+ * Register keyboard shortcuts. Keys are matched on `event.key` (so "C" is shift+c and "?" is shift+/):
+ * "mod+k" (⌘/Ctrl), plain keys like "j" or "Enter", and two-key sequences like "g n".
+ * Plain keys and sequences are ignored while typing in an input/editor; "mod+" combos always fire.
  */
 export function useHotkeys(map: Record<string, Handler>, deps: unknown[] = []) {
   useEffect(() => {
-    let pendingPrefix: string | null = null;
+    let prefix: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    const fire = (k: string, e: KeyboardEvent) => {
+      const h = map[k];
+      if (!h) return false;
+      e.preventDefault();
+      h(e);
+      return true;
+    };
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      const combo = `${mod ? 'mod+' : ''}${e.altKey ? 'alt+' : ''}${key}`;
-      if (map[combo] && (mod || !isTyping(e))) {
-        e.preventDefault();
-        map[combo](e);
+      if (e.metaKey || e.ctrlKey) {
+        fire(`mod+${e.key.toLowerCase()}`, e);
         return;
       }
-      if (mod || isTyping(e)) return;
-      if (pendingPrefix) {
-        const seq = `${pendingPrefix} ${key}`;
-        pendingPrefix = null;
-        if (map[seq]) {
-          e.preventDefault();
-          map[seq](e);
-        }
-        return;
+      if (isTyping(e) || e.altKey) return;
+      if (prefix) {
+        const seq = `${prefix} ${e.key}`;
+        prefix = null;
+        if (fire(seq, e)) return;
       }
-      if (Object.keys(map).some((k) => k.startsWith(`${key} `))) {
-        pendingPrefix = key;
+      if (Object.keys(map).some((k) => k.startsWith(`${e.key} `))) {
+        prefix = e.key;
         if (timer) clearTimeout(timer);
-        timer = setTimeout(() => (pendingPrefix = null), 1200);
+        timer = setTimeout(() => (prefix = null), 1200);
+        e.preventDefault();
         return;
       }
-      const shifted = map[`shift+${key}`];
-      if (e.shiftKey && shifted) {
-        e.preventDefault();
-        shifted(e);
-      }
+      fire(e.key, e) || fire(`shift+${e.key}`, e);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

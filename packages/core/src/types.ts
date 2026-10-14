@@ -94,6 +94,8 @@ export interface CardView {
   prompt: string;
   /** The expected answer (cloze: the full text with deletions marked). */
   answer: string;
+  /** Cloze only: the text hidden by this card's deletion. */
+  hidden?: string[];
   rubric: string | null;
   /** Raw stored text (cloze markup intact) for editing. */
   front: string;

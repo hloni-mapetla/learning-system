@@ -81,11 +81,24 @@ function norm(v: unknown): SQLInputValue {
   return v as SQLInputValue;
 }
 
+const paramNames = new WeakMap<StatementSync, Set<string>>();
+
+/** Named parameters a statement actually uses (node:sqlite rejects unknown ones, which makes shared param objects awkward). */
+function namesOf(s: StatementSync): Set<string> {
+  let names = paramNames.get(s);
+  if (!names) {
+    names = new Set([...s.sourceSQL.matchAll(/[:@$]([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]));
+    paramNames.set(s, names);
+  }
+  return names;
+}
+
 function bind(s: StatementSync, method: 'all' | 'get' | 'run', params: Params): unknown {
   if (params === undefined) return s[method]();
   if (Array.isArray(params)) return s[method](...params.map(norm));
+  const used = namesOf(s);
   const named: Record<string, SQLInputValue> = {};
-  for (const [k, v] of Object.entries(params)) named[k] = norm(v);
+  for (const [k, v] of Object.entries(params)) if (used.has(k)) named[k] = norm(v);
   return s[method](named);
 }
 
