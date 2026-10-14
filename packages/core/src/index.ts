@@ -16,6 +16,9 @@ import { createRelated } from './services/related.ts';
 import { createStudy } from './services/study.ts';
 import { createTasks } from './services/tasks.ts';
 import { createGraph } from './services/graph.ts';
+import { createStats } from './services/stats.ts';
+import { createImporter } from './services/importer.ts';
+import { createExporter } from './services/exporter.ts';
 import type { NoteDetail, SourceDetail } from './types.ts';
 
 export * from './types.ts';
@@ -30,6 +33,9 @@ export type { TopicMatch } from './services/topics.ts';
 export type { SimilarItem } from './services/related.ts';
 export type { StudyContext } from './services/study.ts';
 export type { GraphNode, GraphEdge } from './services/graph.ts';
+export type { Stats, MasteryRow } from './services/stats.ts';
+export type { ImportReport } from './services/importer.ts';
+export { parseKindleClippings } from './importers/kindle.ts';
 export { REVIEW_TASK_ID, type CompleteResult } from './services/tasks.ts';
 
 export interface LoomOptions {
@@ -66,6 +72,9 @@ export function createLoom(opts: LoomOptions = {}) {
   const study = createStudy(ctx, cards, review, topics);
   const tasks = createTasks(ctx, review);
   const graph = createGraph(ctx);
+  const stats = createStats(ctx, cards, review);
+  const importer = createImporter(ctx, sources, notes);
+  const exporter = createExporter(ctx);
   cards.syncMissingClozes();
 
   const embeddings = {
@@ -110,6 +119,9 @@ export function createLoom(opts: LoomOptions = {}) {
     study,
     tasks,
     graph,
+    stats,
+    importer,
+    exporter,
     embeddings,
     noteDetail,
     sourceDetail,

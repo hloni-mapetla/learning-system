@@ -13,6 +13,8 @@ export const NAV: { to: string; label: string; key: string }[] = [
   { to: '/notes', label: 'Notes', key: 'n' },
   { to: '/cards', label: 'Cards', key: 'c' },
   { to: '/graph', label: 'Graph', key: 'g' },
+  { to: '/stats', label: 'Stats', key: 'i' },
+  { to: '/import', label: 'Import & export', key: 'm' },
   { to: '/search', label: 'Search', key: '/' },
 ];
 

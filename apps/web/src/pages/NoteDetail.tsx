@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { NOTE_KINDS, type Link as LinkT, type NoteDetail, type Source } from '@loom/core/types';
 import { api, useAction, useApi } from '../lib/api';
 import { relTime } from '../lib/format';
 import { useHotkeys } from '../lib/hotkeys';
 import { Badge, Button, Input, Section, Select, TagInput, Textarea } from '../components/ui';
-import { Editor } from '../components/Editor';
+const Editor = lazy(() => import('../components/Editor').then((m) => ({ default: m.Editor })));
 import { CardForm } from '../components/CardForm';
 import { STATE_TONE } from '../components/CardItem';
 import { LinkForm } from '../components/LinkForm';
@@ -145,6 +145,7 @@ export function NoteDetailPage() {
         )}
         {editing ? (
           <div className="rounded-lg border border-line bg-panel px-4">
+            <Suspense fallback={<div className="min-h-[50vh] py-3 text-faint">Loading editor…</div>}>
             <Editor
               value={body}
               onChange={onChange}
@@ -155,6 +156,7 @@ export function NoteDetailPage() {
                 setEditing(false);
               }}
             />
+            </Suspense>
           </div>
         ) : (
           <div onDoubleClick={() => setEditing(true)} className="min-h-[30vh] cursor-text">

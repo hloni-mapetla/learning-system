@@ -642,4 +642,69 @@ export function registerTools(server: McpServer, loom: Loom) {
     },
     async ({ task_id, due, ...patch }) => json(taskOut(loom.tasks.update(task_id, { ...patch, dueDate: due }))),
   );
+
+  // ================= import & stats =================
+
+  server.registerTool(
+    'import_highlights',
+    {
+      title: 'Import highlights',
+      description:
+        'Bulk-import highlights. format=kindle for the contents of a Kindle "My Clippings.txt" (creates a source per book; re-imports are skipped); ' +
+        'format=plain for blank-line-separated quotes, optionally ending in "(p. 12)" / "loc 340", with "Note: ..." lines attached to the previous quote. ' +
+        'Returns created note ids so you can then propose concepts and cards from them.',
+      inputSchema: {
+        text: z.string().min(1),
+        format: z.enum(['auto', 'kindle', 'plain']).default('auto'),
+        source_id: z.string().optional(),
+        source_title: z.string().optional().describe('Creates the source if needed (plain format)'),
+        authors: z.string().optional(),
+        books: z.array(z.string()).optional().describe('Kindle: only import books whose title contains one of these'),
+      },
+      annotations: WRITE,
+    },
+    async (a) => {
+      const kindle = a.format === 'kindle' || (a.format === 'auto' && /^={10}\s*$/m.test(a.text) && /Your (Highlight|Note)/i.test(a.text));
+      const r = kindle
+        ? loom.importer.kindle(a.text, { onlyBooks: a.books })
+        : loom.importer.pasted(a.text, { sourceId: a.source_id, sourceTitle: a.source_title, authors: a.authors });
+      kick();
+      return json({ format: kindle ? 'kindle' : 'plain', ...r });
+    },
+  );
+
+  server.registerTool(
+    'get_review_stats',
+    {
+      title: 'Get review stats',
+      description:
+        'Learning analytics: retention (share of review answers not rated Again) over 7/30/90 days, 30-day due forecast, streak, ' +
+        'card counts by state, weakest topics and per-source mastery (mean probability of recall now; new cards count as 0).',
+      inputSchema: { top: z.number().int().min(1).max(50).default(8).describe('How many weakest topics/sources to return') },
+      annotations: READ,
+    },
+    async ({ top }) => {
+      const s = loom.stats.compute();
+      const fmt = (m: (typeof s.topics)[number]) => ({
+        name: m.name,
+        ...(m.id ? { id: m.id } : {}),
+        cards: m.cards,
+        reviewed: m.reviewed,
+        mastery: pct(m.mastery),
+        retention_90d: pct(m.retention),
+        lapses: m.lapses,
+        due: m.due,
+      });
+      return json({
+        totals: s.totals,
+        retention: s.retention.map((r) => ({ days: r.days, reviews: r.reviews, rate: pct(r.rate) })),
+        streak_days: s.streak,
+        reviewed_today: s.reviewedToday,
+        forecast_next_7_days: s.forecast.slice(0, 7),
+        forecast_30_day_total: s.forecast.reduce((a, d) => a + d.count, 0),
+        weakest_topics: s.topics.slice(0, top).map(fmt),
+        weakest_sources: s.sources.slice(0, top).map(fmt),
+      });
+    },
+  );
 }

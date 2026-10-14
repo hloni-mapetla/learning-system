@@ -16,6 +16,10 @@ export const RATING_RUBRIC = `Map the user's answer to an FSRS rating:
 - **easy**: instant, complete, confident, and could explain it further.
 When torn between two ratings, pick the lower one; honest ratings keep the schedule accurate. For cloze cards the hidden text is what matters (paraphrase is fine). For open/synthesis cards grade the reasoning against the rubric, not the wording.`;
 
+/** Claude Code passes only the first word of a slash-command argument; tell Claude to recover the full phrase. */
+const TRUNCATION_HINT = (what: string) =>
+  `(If the ${what} above looks cut off, e.g. a single word, use the full ${what} from the rest of my message.)`;
+
 export interface PromptDef {
   name: string;
   title: string;
@@ -29,13 +33,11 @@ export const PROMPTS: PromptDef[] = [
     name: 'daily_review',
     title: 'Daily review',
     description: 'Conversational quiz on the cards due today, with follow-ups and FSRS grading.',
-    args: [
-      { name: 'limit', description: 'Max cards this session (default 20)', required: false },
-      { name: 'topic', description: 'Optional topic/tag/source to focus on', required: false },
-    ],
-    render: (a) => `Run my daily review in Loom${a.topic ? ` focused on "${a.topic}"` : ''}.
+    // One free-text argument per prompt: Claude Code passes slash-command arguments positionally.
+    args: [{ name: 'topic', description: 'Optional topic, tag or source to focus on', required: false }],
+    render: (a) => `Run my daily review in Loom${a.topic ? ` focused on "${a.topic}" ${TRUNCATION_HINT('topic')}` : ''}.
 
-1. Call get_due_cards (limit ${a.limit || 20}${a.topic ? `, topic "${a.topic}"` : ''}). Tell me how many are due (counts) and start. If nothing is due, say so and offer an exam-prep session or a few new synthesis questions instead.
+1. Call get_due_cards (limit 20${a.topic ? `, topic "${a.topic}"` : ''}). Tell me how many are due (counts) and start. If nothing is due, say so and offer an exam-prep session or a few new synthesis questions instead.
 2. Ask ONE card at a time. Show only the prompt: for cloze cards show the prompt with [...]; for open/synthesis cards ask the question as written. Never show the answer, rubric or hidden text first. Mention the source/note title only if it isn't a giveaway.
 3. When I answer:
    - If it's shaky, partial or vague, ask ONE short follow-up or give a small hint before deciding (a hint caps the rating at hard).
@@ -45,7 +47,7 @@ export const PROMPTS: PromptDef[] = [
 4. Keep momentum: after recording, go straight to the next card. Short replies; no lectures unless I ask "explain".
 5. If I dispute a rating, call undo_review(card_id) and re-record with the corrected rating.
 6. If a card is badly worded or ambiguous, point it out and offer to rewrite it (create_card for the replacement after I approve).
-7. When cards run out (or after ${a.limit || 20}), call get_due_cards again once in case learning steps came due; then give a short summary: number reviewed, the rating spread, and the 2–3 concepts I struggled with, each with a one-sentence explanation. Offer to make an extra card for any recurring weak spot.
+7. When cards run out (or after 20), call get_due_cards again once in case learning steps came due; then give a short summary: number reviewed, the rating spread, and the 2–3 concepts I struggled with, each with a one-sentence explanation. Offer to make an extra card for any recurring weak spot.
 
 ${RATING_RUBRIC}`,
   },
@@ -53,14 +55,11 @@ ${RATING_RUBRIC}`,
     name: 'exam_prep',
     title: 'Exam prep on a topic',
     description: 'Mixed recall + synthesis questions on a topic, drawn from your notes and weakest cards.',
-    args: [
-      { name: 'topic', description: 'Topic, tag or source title', required: true },
-      { name: 'questions', description: 'Number of questions (default 12)', required: false },
-    ],
-    render: (a) => `Prepare me for an exam on "${a.topic}" using my Loom knowledge base.
+    args: [{ name: 'topic', description: 'Topic, tag or source title', required: true }],
+    render: (a) => `Prepare me for an exam on "${a.topic}" using my Loom knowledge base. ${TRUNCATION_HINT('topic')}
 
 1. Call get_study_context("${a.topic}"). Briefly tell me what you found: the sources involved, how many notes and cards, how many are due, and my weakest cards. If it's thin, run search_knowledge with a couple of related phrasings before giving up.
-2. Plan ${a.questions || 12} questions, roughly 60% recall (definitions, mechanisms, key facts, drawn from my weak/due cards and notes) and 40% synthesis (compare/contrast, apply to a new case, "how does A's argument bear on B's claim", especially across different sources). Start easier and escalate.
+2. Plan 12 questions, roughly 60% recall (definitions, mechanisms, key facts, drawn from my weak/due cards and notes) and 40% synthesis (compare/contrast, apply to a new case, "how does A's argument bear on B's claim", especially across different sources). Start easier and escalate.
 3. Ask one question at a time and wait for my answer. Grade each answer honestly; for synthesis, push me with one Socratic follow-up ("why?", "what would X say?", "what's the strongest objection?") before grading.
 4. When a question corresponds to an existing card, call record_review for that card with the rating (rubric below). Questions you invented don't get recorded, but keep track of them.
 5. At the end: give a score breakdown (recall vs synthesis), list my gaps with one-line corrections, and propose up to 5 new cards (preferably synthesis cards spanning two sources, with refs to the relevant notes and a rubric) for the gaps. Create them only after I approve, using create_card.
@@ -72,7 +71,7 @@ ${RATING_RUBRIC}`,
     title: 'Connect a note',
     description: 'Take a note (or topic) and propose typed links and synthesis questions across your other sources.',
     args: [{ name: 'note', description: 'Note id or title (or a topic)', required: true }],
-    render: (a) => `Help me connect "${a.note}" to the rest of my knowledge in Loom.
+    render: (a) => `Help me connect "${a.note}" to the rest of my knowledge in Loom. ${TRUNCATION_HINT('note title')}
 
 1. If that's an id, call get_note; otherwise find the note with search_knowledge and confirm which one I mean if it's ambiguous.
 2. Call find_connections on it (and get_related for its existing links). Read the candidates carefully; fetch get_note for any that look promising but whose snippet isn't enough to judge.
@@ -85,12 +84,11 @@ ${RATING_RUBRIC}`,
     name: 'process_reading',
     title: 'Process reading',
     description: 'Turn pasted highlights or reading notes into a source, atomic notes, links and cards.',
-    args: [
-      { name: 'source', description: 'Title of the book/article (existing or new)', required: false },
-      { name: 'highlights', description: 'The highlights/notes text (can also be pasted in the chat)', required: false },
-    ],
-    render: (a) => `Help me process my reading${a.source ? ` of "${a.source}"` : ''} into Loom.
-${a.highlights ? `\nHighlights:\n"""\n${a.highlights}\n"""\n` : '\nI will paste the highlights next.\n'}
+    args: [{ name: 'source', description: 'Title of the book/article (existing or new); paste highlights in the chat', required: false }],
+    render: (a) => `Help me process my reading${a.source ? ` of "${a.source}" ${TRUNCATION_HINT('title')}` : ''} into Loom.
+
+If the highlights aren't in this message, ask me to paste them (or to import a Kindle "My Clippings.txt").
+
 1. Identify the source. Search for it (search_knowledge with types ["source"]); if it doesn't exist, propose create_source with title, authors, kind and tags, and create it once I confirm. If the material came from a Kindle "My Clippings.txt", use import_highlights instead of re-typing it.
 2. Save the raw highlights as highlight notes (create_note kind "highlight" with quote and location), unless they were imported already. Fix obvious OCR or formatting junk; don't paraphrase quotes.
 3. Then think with me: what are the 3–7 key ideas? For each, propose an atomic concept or claim note in my own words (title = the idea as a short phrase or claim; body = 2–5 sentences plus [[wikilinks]] to existing notes you found with search_knowledge), linked to the highlights it came from.
@@ -104,6 +102,7 @@ export function renderGuide(): string {
   const sections = PROMPTS.map(
     (p) => `## ${p.title}\n\n_${p.description}_\n\nSay: **"${p.title.toLowerCase()}${p.args.some((x) => x.required) ? ` <${p.args.filter((x) => x.required).map((x) => x.name).join('>, <')}>` : ''}"**. Full script:\n\n${p
       .render(Object.fromEntries(p.args.map((x) => [x.name, x.required ? `<${x.name}>` : undefined])))
+      .replace(/ \(If the [^)]*cut off[^)]*\)/g, '')
       .split('\n')
       .map((l) => (l ? `> ${l}` : '>'))
       .join('\n')}`,

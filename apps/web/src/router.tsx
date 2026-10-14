@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect } from '@tanstack/react-router';
 import { Layout } from './components/Layout';
 import { SourcesPage } from './pages/Sources';
 import { SourceDetailPage } from './pages/SourceDetail';
@@ -8,7 +8,7 @@ import { SearchPage } from './pages/Search';
 import { ReviewPage } from './pages/Review';
 import { CardsPage } from './pages/Cards';
 import { TodayPage } from './pages/Today';
-import { GraphPage } from './pages/Graph';
+import { ImportPage } from './pages/Import';
 
 const root = createRootRoute({
   component: Layout,
@@ -19,7 +19,9 @@ const r = (path: string, component: () => React.ReactNode) => createRoute({ getP
 const routeTree = root.addChildren([
   createRoute({ getParentRoute: () => root, path: '/', beforeLoad: () => { throw redirect({ to: '/today' }); } }),
   r('/today', TodayPage),
-  r('/graph', GraphPage),
+  r('/graph', lazyRouteComponent(() => import('./pages/Graph'), 'GraphPage') as any),
+  r('/stats', lazyRouteComponent(() => import('./pages/Stats'), 'StatsPage') as any),
+  r('/import', ImportPage),
   r('/sources', SourcesPage),
   r('/sources/$id', SourceDetailPage),
   r('/notes', NotesPage),

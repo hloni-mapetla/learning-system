@@ -87,7 +87,7 @@ Say: **"process reading"**. Full script:
 
 > Help me process my reading into Loom.
 >
-> I will paste the highlights next.
+> If the highlights aren't in this message, ask me to paste them (or to import a Kindle "My Clippings.txt").
 >
 > 1. Identify the source. Search for it (search_knowledge with types ["source"]); if it doesn't exist, propose create_source with title, authors, kind and tags, and create it once I confirm. If the material came from a Kindle "My Clippings.txt", use import_highlights instead of re-typing it.
 > 2. Save the raw highlights as highlight notes (create_note kind "highlight" with quote and location), unless they were imported already. Fix obvious OCR or formatting junk; don't paraphrase quotes.

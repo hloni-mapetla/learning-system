@@ -6,7 +6,8 @@ import { LoomOAuthProvider, setOwnerPassword } from './oauth.ts';
 import { tokenStore } from './tokens.ts';
 import { runStdio } from '@loom/mcp/stdio';
 import { renderGuide } from '@loom/mcp';
-import { writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 const HELP = `loom — personal learning system
 
@@ -20,6 +21,9 @@ Usage: loom <command> [options]
   mcp                                       MCP server over stdio (Claude Desktop / Claude Code)
   token create [name] | list | revoke <id>  Bearer tokens for the HTTP MCP endpoint
   guide [file]                              Write the Claude Project instructions (session scripts)
+  import <files|folders>                    Import Kindle My Clippings.txt and/or Markdown notes
+  export [--json file] [--md dir]           Export everything (JSON) and/or a Markdown vault
+  backup [--dir d] [--keep 30]              Timestamped SQLite snapshot (safe while serving)
   reindex                                   (Re)compute embeddings for everything
   help
 
@@ -87,6 +91,54 @@ async function main() {
         writeFileSync(out, renderGuide());
         console.log(`Wrote ${out}`);
       } else process.stdout.write(renderGuide());
+      break;
+    }
+    case 'backup': {
+      const l = loom();
+      const dir = (rest[rest.indexOf('--dir') + 1] && rest.includes('--dir')) ? rest[rest.indexOf('--dir') + 1] : join(dirname(l.db.path), 'backups');
+      const keep = rest.includes('--keep') ? Number(rest[rest.indexOf('--keep') + 1]) : 30;
+      console.log(`Backed up to ${l.exporter.backup(dir, keep)} (keeping newest ${keep})`);
+      l.close();
+      break;
+    }
+    case 'export': {
+      const l = loom();
+      const jsonOut = rest.includes('--json') ? rest[rest.indexOf('--json') + 1] : null;
+      const mdOut = rest.includes('--md') ? rest[rest.indexOf('--md') + 1] : null;
+      if (!jsonOut && !mdOut) throw new Error('Usage: loom export [--json file.json] [--md dir]');
+      if (jsonOut) {
+        writeFileSync(jsonOut, JSON.stringify(l.exporter.json(), null, 1));
+        console.log(`Wrote ${jsonOut}`);
+      }
+      if (mdOut) console.log(`Wrote ${l.exporter.markdownVault(mdOut).files} files to ${mdOut}`);
+      l.close();
+      break;
+    }
+    case 'import': {
+      const l = loom();
+      const files = rest.filter((f) => !f.startsWith('--'));
+      if (!files.length) throw new Error('Usage: loom import <My Clippings.txt | note.md | folder> ...');
+      const all: string[] = [];
+      const walk = (p: string) => {
+        if (statSync(p).isDirectory()) for (const f of readdirSync(p)) walk(join(p, f));
+        else all.push(p);
+      };
+      files.forEach(walk);
+      let created = 0, skipped = 0;
+      for (const f of all) {
+        const text = readFileSync(f, 'utf8');
+        const r = f.toLowerCase().endsWith('.md')
+          ? l.importer.markdown(text, { filename: basename(f) })
+          : f.toLowerCase().endsWith('.txt')
+            ? l.importer.kindle(text)
+            : null;
+        if (!r) continue;
+        created += r.created;
+        skipped += r.skipped;
+        for (const s of r.sources) if (s.created) console.log(`  + source: ${s.title}`);
+      }
+      console.log(`Imported ${created} notes (${skipped} already present). Embeddings are computed on next \`loom serve\` or \`loom reindex\`.`);
+      l.close();
       break;
     }
     case 'reindex': {

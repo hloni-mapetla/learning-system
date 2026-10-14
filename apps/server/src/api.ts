@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { NotFoundError, schemas, ValidationError, type Loom } from '@loom/core';
+import { dirname, join } from 'node:path';
+import { NotFoundError, parseKindleClippings, schemas, ValidationError, type Loom } from '@loom/core';
 
 const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
 const num = (v: unknown) => (typeof v === 'string' && v !== '' ? Number(v) : undefined);
@@ -158,6 +159,49 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
       }),
     );
   });
+
+  // ---- stats, import, export ----
+  r.get('/stats', (_req, res) => res.json(loom.stats.compute()));
+  r.post('/import/kindle', (req, res) => {
+    const body = z.object({ text: z.string().min(1), books: z.array(z.string()).optional() }).parse(req.body);
+    res.json(loom.importer.kindle(body.text, { onlyBooks: body.books }));
+  });
+  r.post('/import/kindle/preview', (req, res) => {
+    const { text } = z.object({ text: z.string() }).parse(req.body);
+    const books = new Map<string, { title: string; author: string; highlights: number; notes: number }>();
+    for (const c of parseKindleClippings(text)) {
+      const b = books.get(c.bookTitle) ?? { title: c.bookTitle, author: c.author, highlights: 0, notes: 0 };
+      if (c.kind === 'highlight') b.highlights++;
+      else b.notes++;
+      books.set(c.bookTitle, b);
+    }
+    res.json([...books.values()]);
+  });
+  r.post('/import/markdown', (req, res) => {
+    const body = z.object({ files: z.array(z.object({ name: z.string(), content: z.string() })), sourceId: z.string().nullish() }).parse(req.body);
+    const total = { created: 0, skipped: 0, noteIds: [] as string[], sources: [] as unknown[] };
+    for (const f of body.files) {
+      const r1 = loom.importer.markdown(f.content, { filename: f.name, sourceId: body.sourceId ?? undefined });
+      total.created += r1.created;
+      total.skipped += r1.skipped;
+      total.noteIds.push(...r1.noteIds);
+      total.sources.push(...r1.sources);
+    }
+    res.json(total);
+  });
+  r.post('/import/paste', (req, res) => {
+    const b = z.object({ text: z.string().min(1), sourceId: z.string().nullish(), sourceTitle: z.string().nullish(), authors: z.string().nullish() }).parse(req.body);
+    res.json(loom.importer.pasted(b.text, { sourceId: b.sourceId ?? undefined, sourceTitle: b.sourceTitle ?? undefined, authors: b.authors ?? undefined }));
+  });
+  r.get('/export/json', (_req, res) => {
+    res.set('Content-Disposition', `attachment; filename="loom-export-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.json(loom.exporter.json());
+  });
+  r.post('/export/markdown', (_req, res) => {
+    const dir = join(dirname(loom.db.path), 'exports', `vault-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
+    res.json({ dir, ...loom.exporter.markdownVault(dir) });
+  });
+  r.post('/backup', (_req, res) => res.json({ path: loom.exporter.backup(join(dirname(loom.db.path), 'backups')) }));
 
   // ---- settings ----
   r.get('/settings', (_req, res) => res.json(loom.settings.get()));

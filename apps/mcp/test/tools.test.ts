@@ -157,3 +157,22 @@ describe('MCP task tools', () => {
     expect(queue.map((s: any) => s.title)).toContain('Superforecasting');
   });
 });
+
+describe('MCP import & stats tools', () => {
+  it('imports plain highlights into a new source and reports stats', async () => {
+    const r = await call('import_highlights', { text: 'Premature optimization is the root of all evil. (p. 268)\n\nNote: Knuth', source_title: 'Structured Programming with go to', authors: 'Donald Knuth' });
+    expect(r).toMatchObject({ format: 'plain', created: 1 });
+    const n = await call('get_note', { id: r.noteIds[0] });
+    expect(n).toMatchObject({ kind: 'highlight', location: 'p. 268', body: 'Knuth' });
+
+    const k = await call('import_highlights', { text: 'Book (Ann Author)\n- Your Highlight on page 1 | Location 5-6 | Added on Monday\n\nHello world\n==========\n' });
+    expect(k).toMatchObject({ format: 'kindle', created: 1, sources: [{ title: 'Book', created: true }] });
+
+    const card = loom.cards.list({ noteId: ids.ease }).items[0];
+    loom.review.record(card.id, 'good', { grader: 'claude' });
+    const s = await call('get_review_stats', {});
+    expect(s.reviewed_today).toBe(1);
+    expect(s.weakest_sources[0]).toMatchObject({ name: 'Thinking, Fast and Slow', cards: 1 });
+    expect(s.forecast_next_7_days).toHaveLength(7);
+  });
+});

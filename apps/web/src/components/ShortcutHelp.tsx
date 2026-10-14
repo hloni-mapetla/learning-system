@@ -12,6 +12,8 @@ const GROUPS: [string, [string, string][]][] = [
       ['g t', 'Go to today'],
       ['g n', 'Go to notes'],
       ['g g', 'Go to graph'],
+      ['g i', 'Go to stats'],
+      ['g m', 'Go to import/export'],
       ['g r', 'Go to review'],
       ['g c', 'Go to cards'],
       ['?', 'This help'],
