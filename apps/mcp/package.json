@@ -2,7 +2,11 @@
   "name": "@loom/mcp",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./stdio": "./src/stdio.ts",
+    "./prompts": "./src/prompts.ts"
+  },
   "dependencies": {
     "@loom/core": "*",
     "@modelcontextprotocol/sdk": "^1.32.1",

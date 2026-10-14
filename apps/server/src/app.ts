@@ -53,6 +53,7 @@ export function buildApp(loom: Loom, opts: AppOptions = {}) {
     });
   });
   app.use('/api', apiRouter(loom, broadcast));
+  app.use('/mcp', express.json({ limit: '20mb' }));
 
   opts.extend?.(app);
 

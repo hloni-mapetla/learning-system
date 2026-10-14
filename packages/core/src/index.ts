@@ -12,6 +12,8 @@ import { createSettings } from './services/settings.ts';
 import { createCards } from './services/cards.ts';
 import { createReview } from './services/review.ts';
 import { createTopics } from './services/topics.ts';
+import { createRelated } from './services/related.ts';
+import { createStudy } from './services/study.ts';
 import type { NoteDetail, SourceDetail } from './types.ts';
 
 export * from './types.ts';
@@ -23,6 +25,8 @@ export { parseWikilinks } from './services/wikilinks.ts';
 export { humanInterval } from './services/review.ts';
 export type { Settings } from './services/settings.ts';
 export type { TopicMatch } from './services/topics.ts';
+export type { SimilarItem } from './services/related.ts';
+export type { StudyContext } from './services/study.ts';
 
 export interface LoomOptions {
   /** Path to the SQLite file. Defaults to $LOOM_DB or ~/.loom/loom.db. */
@@ -54,6 +58,8 @@ export function createLoom(opts: LoomOptions = {}) {
   const cards = createCards(ctx, tags);
   const review = createReview(ctx, cards, settings);
   const topics = createTopics(ctx, search);
+  const related = createRelated(ctx, links, search, index);
+  const study = createStudy(ctx, cards, review, topics);
   cards.syncMissingClozes();
 
   const embeddings = {
@@ -94,6 +100,8 @@ export function createLoom(opts: LoomOptions = {}) {
     cards,
     review,
     topics,
+    related,
+    study,
     embeddings,
     noteDetail,
     sourceDetail,

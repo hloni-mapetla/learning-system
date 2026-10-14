@@ -27,10 +27,19 @@ export function createTopics(ctx: Ctx, search: Search) {
     const tag = normalizeTag(t);
     const tagHit = db.get<{ name: string }>(`SELECT name FROM tags WHERE name = ? OR name LIKE ? || '/%' LIMIT 1`, [tag, tag]);
     if (tagHit) {
+      // Items tagged directly, then notes whose source carries the tag. Concepts/claims first: they're the densest.
       const items = db.all<{ type: 'note' | 'source'; id: string }>(
-        `SELECT it.item_type AS type, it.item_id AS id FROM item_tags it JOIN tags tg ON tg.id = it.tag_id
-         WHERE it.item_type IN ('note', 'source') AND (tg.name = ? OR tg.name LIKE ? || '/%')`,
-        [tag, tag],
+        `WITH tagged AS (
+           SELECT it.item_type AS type, it.item_id AS id FROM item_tags it JOIN tags tg ON tg.id = it.tag_id
+           WHERE it.item_type IN ('note', 'source') AND (tg.name = :t OR tg.name LIKE :t || '/%'))
+         SELECT type, id FROM (
+           SELECT 'note' AS type, n.id, n.kind, n.updated_at FROM notes n
+            WHERE n.id IN (SELECT id FROM tagged WHERE type = 'note')
+               OR n.source_id IN (SELECT id FROM tagged WHERE type = 'source')
+           UNION ALL
+           SELECT 'source', id, 'source', '' FROM tagged WHERE type = 'source')
+         ORDER BY type = 'source', CASE kind WHEN 'concept' THEN 0 WHEN 'claim' THEN 0 WHEN 'summary' THEN 1 WHEN 'note' THEN 2 ELSE 3 END, updated_at DESC`,
+        { t: tag },
       );
       return { matchedBy: 'tag', tag, items };
     }
