@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f7f5f0;
+  --panel: #ffffff;
+  --sunken: #efece5;
+  --line: #e2ded4;
+  --ink: #23221f;
+  --muted: #6d6a62;
+  --faint: #9a968c;
+  --accent: #2f6b62;
+  --accent-ink: #ffffff;
+  --accent-soft: #dcebe7;
+  --warn: #a8551d;
+  --danger: #b0352f;
+  --again: #b0352f;
+  --hard: #b5761c;
+  --good: #2f6b62;
+  --easy: #3a62a8;
+  --mark: #f6e3a3;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161716;
+    --panel: #1e201f;
+    --sunken: #131413;
+    --line: #2e312f;
+    --ink: #e8e6e1;
+    --muted: #a19e96;
+    --faint: #6f6c66;
+    --accent: #6fb5a8;
+    --accent-ink: #0f1a18;
+    --accent-soft: #23352f;
+    --warn: #e09a5a;
+    --danger: #e0716a;
+    --again: #e0716a;
+    --hard: #e0a95a;
+    --good: #6fb5a8;
+    --easy: #85a8e8;
+    --mark: #5b4d1f;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-again: var(--again);
+  --color-hard: var(--hard);
+  --color-good: var(--good);
+  --color-easy: var(--easy);
+}
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+mark { background: var(--mark); color: inherit; border-radius: 2px; padding: 0 1px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Rendered markdown */
+.prose-loom { font-family: var(--font-serif); font-size: 1.075rem; line-height: 1.65; }
+.prose-loom > * + * { margin-top: 0.75em; }
+.prose-loom h1 { font-size: 1.6em; font-weight: 650; line-height: 1.25; }
+.prose-loom h2 { font-size: 1.3em; font-weight: 650; margin-top: 1.2em; }
+.prose-loom h3 { font-size: 1.1em; font-weight: 650; margin-top: 1em; }
+.prose-loom ul { list-style: disc; padding-left: 1.4em; }
+.prose-loom ol { list-style: decimal; padding-left: 1.4em; }
+.prose-loom blockquote { border-left: 3px solid var(--accent); padding-left: 1em; color: var(--muted); font-style: italic; }
+.prose-loom code { font-family: var(--font-mono); font-size: 0.85em; background: var(--sunken); padding: 0.1em 0.3em; border-radius: 4px; }
+.prose-loom pre { background: var(--sunken); padding: 0.8em 1em; border-radius: 8px; overflow-x: auto; }
+.prose-loom pre code { background: none; padding: 0; }
+.prose-loom a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.prose-loom a.wikilink { text-decoration-style: dotted; }
+.prose-loom a.wikilink.dangling { color: var(--warn); }
+.prose-loom .cloze { background: var(--accent-soft); border-radius: 4px; padding: 0 0.25em; }
+.prose-loom table { border-collapse: collapse; }
+.prose-loom td, .prose-loom th { border: 1px solid var(--line); padding: 0.3em 0.6em; }
+
+/* CodeMirror */
+.cm-editor { height: 100%; font-size: 15px; background: transparent; }
+.cm-editor.cm-focused { outline: none; }
+.cm-scroller { font-family: var(--font-sans); line-height: 1.65; }
+.cm-tooltip-autocomplete { font-family: var(--font-sans); }
+.cm-completionDetail { margin-left: 0.6em; color: var(--faint); font-style: normal; font-size: 0.85em; }
+.cm-content { caret-color: var(--accent); padding: 12px 0; }
+.cm-gutters { display: none; }
+.cm-activeLine { background: transparent; }
+.cm-tooltip { background: var(--panel) !important; border: 1px solid var(--line) !important; border-radius: 8px; color: var(--ink); }
+.cm-tooltip-autocomplete ul li[aria-selected] { background: var(--accent) !important; color: var(--accent-ink) !important; }
+.cm-selectionBackground, .cm-focused .cm-selectionBackground { background: var(--accent-soft) !important; }

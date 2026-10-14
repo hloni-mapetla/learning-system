@@ -1,0 +1,30 @@
+{
+  "name": "loom",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "loom": "apps/server/src/cli.ts"
+  },
+  "scripts": {
+    "loom": "node apps/server/src/cli.ts",
+    "serve": "node apps/server/src/cli.ts serve",
+    "mcp": "node apps/server/src/cli.ts mcp",
+    "dev": "node --run dev:server & npm run dev -w @loom/web; wait",
+    "dev:server": "node --watch apps/server/src/cli.ts serve",
+    "build": "npm run build -w @loom/web",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  }
+}
