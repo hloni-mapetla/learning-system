@@ -8,6 +8,8 @@ import { Badge, Button, Input, Section, Select, TagInput, Textarea } from '../co
 import { Editor } from '../components/Editor';
 import { CardForm } from '../components/CardForm';
 import { STATE_TONE } from '../components/CardItem';
+import { LinkForm } from '../components/LinkForm';
+import { SimilarPanel } from '../components/SimilarPanel';
 import { Markdown } from '../components/Markdown';
 
 const REL_LABEL: Record<string, [string, string]> = {
@@ -70,6 +72,7 @@ export function NoteDetailPage() {
   const removeLink = useAction((linkId: string) => api.del(`/links/${linkId}`));
   const [editing, setEditing] = useState(!!search.edit);
   const [addingCard, setAddingCard] = useState(false);
+  const [addingLink, setAddingLink] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -94,7 +97,7 @@ export function NoteDetailPage() {
   };
   useEffect(() => () => flush(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useHotkeys({ e: () => setEditing(true), 'shift+c': () => setAddingCard(true), C: () => setAddingCard(true) }, []);
+  useHotkeys({ e: () => setEditing(true), C: () => setAddingCard(true), L: () => setAddingLink(true) }, []);
 
   const dangling = useMemo(
     () => new Set((n?.outgoing ?? []).filter((l) => !l.to && l.targetTitle).map((l) => l.targetTitle!.toLowerCase())),
@@ -217,8 +220,17 @@ export function NoteDetailPage() {
             <p className="text-xs text-faint">Select text while editing and press ⌘⇧C to make a cloze.</p>
           )}
         </Section>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs font-semibold tracking-wide text-faint uppercase">Connections</span>
+          <span className="flex gap-3 text-xs">
+            <Link to="/graph" search={{ focus: n.id } as any} className="text-accent hover:underline">graph</Link>
+            <button onClick={() => setAddingLink(true)} className="text-accent hover:underline">+ link <span className="font-mono text-faint">L</span></button>
+          </span>
+        </div>
+        {addingLink && <div className="mb-4"><LinkForm from={{ type: 'note', id: n.id }} onDone={() => setAddingLink(false)} /></div>}
         <LinkList title="Links" links={n.outgoing} dir="out" onRemove={(lid) => removeLink.mutate(lid)} />
         <LinkList title="Backlinks" links={n.backlinks} dir="in" onRemove={(lid) => removeLink.mutate(lid)} />
+        <SimilarPanel key={n.id} self={{ type: 'note', id: n.id, title: n.title, kind: n.kind }} />
         <div className="pt-4">
           <Button
             variant="danger"

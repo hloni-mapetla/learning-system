@@ -1,0 +1,8 @@
+# ~/.cloudflared/config.yml for a named Cloudflare Tunnel.
+# Only the PUBLIC listener (4318: OAuth + /mcp) is exposed. Never point a tunnel at 4317.
+tunnel: loom
+credentials-file: /Users/YOU/.cloudflared/<TUNNEL-UUID>.json
+ingress:
+  - hostname: loom.example.com
+    service: http://127.0.0.1:4318
+  - service: http_status:404

@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createMcpServer } from '../src/index.ts';
 import { testLoom } from '../../../packages/core/test/helpers.ts';
+import { localDate } from '@loom/core';
 
 type Loom = ReturnType<typeof testLoom>;
 
@@ -140,5 +141,19 @@ describe('MCP server', () => {
     const up = await call('update_source', { id: ids.tetlock, status: 'done' });
     expect(up.status).toBe('done');
     expect(loom.sources.get(ids.tetlock).finishedAt).toBeTruthy();
+  });
+});
+
+describe('MCP task tools', () => {
+  it('lists today with the review task, completes reading tasks with a capture follow-up', async () => {
+    const t = await call('create_task', { title: 'Read ch. 4', kind: 'read', source_id: ids.tetlock, due: localDate() });
+    const today = await call('list_tasks', { view: 'today' });
+    expect(today[0]).toMatchObject({ id: 'review-today', virtual: true });
+    expect(today.map((x: any) => x.title)).toContain('Read ch. 4');
+    const done = await call('complete_task', { task_id: t.id });
+    expect(done.follow_up).toMatchObject({ action: 'capture_highlights', sourceTitle: 'Superforecasting' });
+    expect((await call('complete_task', { task_id: 'review-today' })).error).toMatch(/completes itself/);
+    const queue = await call('list_tasks', { view: 'reading_queue' });
+    expect(queue.map((s: any) => s.title)).toContain('Superforecasting');
   });
 });

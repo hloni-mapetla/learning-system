@@ -7,6 +7,8 @@ import { NoteDetailPage } from './pages/NoteDetail';
 import { SearchPage } from './pages/Search';
 import { ReviewPage } from './pages/Review';
 import { CardsPage } from './pages/Cards';
+import { TodayPage } from './pages/Today';
+import { GraphPage } from './pages/Graph';
 
 const root = createRootRoute({
   component: Layout,
@@ -15,7 +17,9 @@ const root = createRootRoute({
 const r = (path: string, component: () => React.ReactNode) => createRoute({ getParentRoute: () => root, path, component });
 
 const routeTree = root.addChildren([
-  createRoute({ getParentRoute: () => root, path: '/', beforeLoad: () => { throw redirect({ to: '/notes' }); } }),
+  createRoute({ getParentRoute: () => root, path: '/', beforeLoad: () => { throw redirect({ to: '/today' }); } }),
+  r('/today', TodayPage),
+  r('/graph', GraphPage),
   r('/sources', SourcesPage),
   r('/sources/$id', SourceDetailPage),
   r('/notes', NotesPage),

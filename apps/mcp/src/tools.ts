@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
+  REVIEW_TASK_ID,
+  TASK_KINDS,
   CARD_TYPES,
   NOTE_KINDS,
   RATINGS,
@@ -548,5 +550,96 @@ export function registerTools(server: McpServer, loom: Loom) {
       const l = loom.links.create({ from: { type: f.type, id: from_id }, to: { type: t.type, id: to_id }, rel, rationale }, 'claude');
       return json({ link_id: l.id, from: l.from.title, rel: l.rel, to: l.to?.title, rationale: l.rationale });
     },
+  );
+
+  // ================= tasks =================
+
+  const taskOut = (t: ReturnType<typeof loom.tasks.get>) => ({
+    id: t.id,
+    title: t.title,
+    kind: t.kind,
+    due: t.dueDate,
+    priority: t.priority,
+    status: t.status,
+    source: t.sourceTitle ?? undefined,
+    source_id: t.sourceId ?? undefined,
+    details: t.details || undefined,
+    ...(t.virtual ? { virtual: true } : {}),
+  });
+
+  server.registerTool(
+    'list_tasks',
+    {
+      title: 'List tasks',
+      description:
+        "The user's to-do list. view=today (overdue + due today + urgent, plus a computed 'Review N due cards' task), upcoming, all_open, done. " +
+        'view=reading_queue returns sources being read/queued by priority with their open tasks.',
+      inputSchema: {
+        view: z.enum(['today', 'upcoming', 'all_open', 'done', 'reading_queue']).default('today'),
+        source_id: z.string().optional(),
+      },
+      annotations: READ,
+    },
+    async ({ view, source_id }) => {
+      if (view === 'reading_queue') return json(loom.tasks.readingQueue());
+      return json(loom.tasks.list({ view, sourceId: source_id, limit: 100 }).map(taskOut));
+    },
+  );
+
+  server.registerTool(
+    'create_task',
+    {
+      title: 'Create task',
+      description:
+        'Add a to-do. kinds: todo, read ("read chapter 4"), process_highlights, summarize ("write summary of X"), write. ' +
+        'Link learning tasks to a source_id. due is YYYY-MM-DD (local). priority 1 = highest.',
+      inputSchema: {
+        title: z.string().min(1),
+        kind: z.enum(TASK_KINDS).default('todo'),
+        source_id: z.string().optional(),
+        due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        priority: z.number().int().min(1).max(5).default(3),
+        details: z.string().optional(),
+      },
+      annotations: WRITE,
+    },
+    async (a) =>
+      json(taskOut(loom.tasks.create({ title: a.title, kind: a.kind, sourceId: a.source_id, dueDate: a.due, priority: a.priority, details: a.details }))),
+  );
+
+  server.registerTool(
+    'complete_task',
+    {
+      title: 'Complete task',
+      description:
+        'Mark a task done. For reading tasks the result includes a follow_up: prompt the user to capture highlights/notes for that source now.',
+      inputSchema: { task_id: z.string() },
+      annotations: WRITE,
+    },
+    async ({ task_id }) => {
+      if (task_id === REVIEW_TASK_ID) {
+        return json({ error: "The review task completes itself when today's due cards are reviewed. Use get_due_cards to review." });
+      }
+      const r = loom.tasks.complete(task_id);
+      return json({ task: taskOut(r.task), follow_up: r.followUp });
+    },
+  );
+
+  server.registerTool(
+    'update_task',
+    {
+      title: 'Update task',
+      description: 'Change a task: title, due date, priority, details, or status (open/cancelled; use complete_task to finish).',
+      inputSchema: {
+        task_id: z.string(),
+        title: z.string().optional(),
+        due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        priority: z.number().int().min(1).max(5).optional(),
+        details: z.string().optional(),
+        status: z.enum(['open', 'cancelled']).optional(),
+      },
+      annotations: WRITE,
+    },
+    async ({ task_id, due, ...patch }) => json(taskOut(loom.tasks.update(task_id, { ...patch, dueDate: due }))),
   );
 }

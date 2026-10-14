@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { createLoom, defaultDbPath } from '@loom/core';
-import { buildApp } from './app.ts';
-import { mountMcp } from './mcpHttp.ts';
+import { serve } from './serve.ts';
+import { LoomOAuthProvider, setOwnerPassword } from './oauth.ts';
 import { tokenStore } from './tokens.ts';
 import { runStdio } from '@loom/mcp/stdio';
 import { renderGuide } from '@loom/mcp';
@@ -12,20 +12,24 @@ const HELP = `loom — personal learning system
 
 Usage: loom <command> [options]
 
-  serve [--port 4317] [--host 127.0.0.1]   Web UI + REST API (+ HTTP MCP at /mcp)
+  serve [--port 4317] [--public-url URL] [--public-port 4318]
+                                            Web UI + API (+ /mcp with tokens); with a public URL, also an
+                                            OAuth-protected MCP-only listener for the tunnel
+  set-password                              Password for approving remote Claude connectors (OAuth)
+  revoke-all                                Sign out every remote connector
   mcp                                       MCP server over stdio (Claude Desktop / Claude Code)
   token create [name] | list | revoke <id>  Bearer tokens for the HTTP MCP endpoint
   guide [file]                              Write the Claude Project instructions (session scripts)
   reindex                                   (Re)compute embeddings for everything
   help
 
-Environment: LOOM_DB (default ${defaultDbPath()}), LOOM_DATA_DIR, LOOM_NO_EMBED=1 to disable semantic search.`;
+Environment: LOOM_PUBLIC_URL, LOOM_DB (default ${defaultDbPath()}), LOOM_DATA_DIR, LOOM_NO_EMBED=1 to disable semantic search.`;
 
 async function main() {
   const [cmd = 'help', ...rest] = process.argv.slice(2);
   const { values } = parseArgs({
     args: rest,
-    options: { port: { type: 'string' }, host: { type: 'string' } },
+    options: { port: { type: 'string' }, host: { type: 'string' }, 'public-url': { type: 'string' }, 'public-port': { type: 'string' } },
     allowPositionals: true,
     strict: false,
   });
@@ -33,23 +37,28 @@ async function main() {
 
   switch (cmd) {
     case 'serve': {
+      serve(loom(), {
+        port: Number(values.port ?? process.env.PORT ?? 4317),
+        host: String(values.host ?? process.env.HOST ?? '127.0.0.1'),
+        publicUrl: (values['public-url'] as string | undefined) ?? process.env.LOOM_PUBLIC_URL,
+        publicPort: Number(values['public-port'] ?? process.env.LOOM_PUBLIC_PORT ?? 4318),
+      });
+      break;
+    }
+    case 'set-password': {
       const l = loom();
-      const tokens = tokenStore(l);
-      const { app, scheduleEmbed } = buildApp(l, {
-        extend: (a) =>
-          mountMcp(a, l, (req, res) => {
-            const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '');
-            if (m && tokens.verify(m[1].trim())) return true;
-            res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: 'unauthorized' });
-            return false;
-          }),
-      });
-      const port = Number(values.port ?? process.env.PORT ?? 4317);
-      const host = String(values.host ?? process.env.HOST ?? '127.0.0.1');
-      app.listen(port, host, () => {
-        console.log(`loom: http://${host}:${port}  (db: ${l.db.path})`);
-      });
-      if (l.embeddings.reindexAll() || l.embeddings.pending()) scheduleEmbed();
+      const pw = await readSecret('New Loom password (used to approve Claude connectors): ');
+      const again = await readSecret('Repeat: ');
+      if (pw !== again) throw new Error('Passwords did not match');
+      setOwnerPassword(l, pw);
+      console.log('Password set.');
+      l.close();
+      break;
+    }
+    case 'revoke-all': {
+      const l = loom();
+      console.log(`Revoked ${new LoomOAuthProvider(l).revokeAll()} OAuth tokens. Claude connectors must sign in again.`);
+      l.close();
       break;
     }
     case 'mcp': {
@@ -97,3 +106,39 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+
+let piped: string[] | null = null;
+
+async function readSecret(prompt: string): Promise<string> {
+  const { createInterface } = await import('node:readline');
+  if (!process.stdin.isTTY) {
+    // Piped input (e.g. printf 'pw\npw\n' | loom set-password): read all lines once.
+    if (!piped) {
+      piped = [];
+      for await (const line of createInterface({ input: process.stdin })) piped.push(line);
+    }
+    return piped.shift() ?? '';
+  }
+  return new Promise((resolve) => {
+    process.stdout.write(prompt);
+    const stdin = process.stdin;
+    stdin.setRawMode(true);
+    stdin.resume();
+    let buf = '';
+    const onData = (d: Buffer) => {
+      for (const ch of d.toString('utf8')) {
+        if (ch === '\r' || ch === '\n') {
+          stdin.setRawMode(false);
+          stdin.pause();
+          stdin.off('data', onData);
+          process.stdout.write('\n');
+          return resolve(buf);
+        }
+        if (ch === '\u0003') process.exit(130);
+        if (ch === '\u007f') buf = buf.slice(0, -1);
+        else buf += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}

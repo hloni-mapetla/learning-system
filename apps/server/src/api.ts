@@ -122,6 +122,43 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
   });
   r.get('/review/forecast', (req, res) => res.json(loom.review.forecast(num(req.query.days) ?? 30)));
 
+  // ---- tasks ----
+  r.get('/tasks', (req, res) =>
+    res.json(loom.tasks.list({ view: (str(req.query.view) as any) ?? 'all_open', sourceId: str(req.query.sourceId) })),
+  );
+  r.get('/reading-queue', (_req, res) => res.json(loom.tasks.readingQueue()));
+  r.post('/tasks', (req, res) => res.status(201).json(loom.tasks.create(schemas.TaskCreate.parse(req.body))));
+  r.patch('/tasks/:id', (req, res) => res.json(loom.tasks.update(req.params.id, schemas.TaskPatch.parse(req.body))));
+  r.post('/tasks/:id/complete', (req, res) => res.json(loom.tasks.complete(req.params.id)));
+  r.delete('/tasks/:id', (req, res) => {
+    loom.tasks.remove(req.params.id);
+    res.status(204).end();
+  });
+
+  // ---- graph & connections ----
+  r.get('/graph', (req, res) =>
+    res.json(
+      loom.graph.build({
+        focus: str(req.query.focus),
+        depth: num(req.query.depth),
+        tag: str(req.query.tag),
+        noteKinds: list(req.query.kinds),
+        includeSourceEdges: req.query.sourceEdges !== 'false',
+        hideIsolated: req.query.hideIsolated === 'true',
+      }),
+    ),
+  );
+  r.get('/similar/:type/:id', async (req, res) => {
+    const type = z.enum(['note', 'source']).parse(req.params.type);
+    res.json(
+      await loom.related.similar(type, req.params.id, {
+        limit: num(req.query.limit) ?? 8,
+        crossSourceOnly: req.query.crossSource === 'true',
+        excludeLinked: true,
+      }),
+    );
+  });
+
   // ---- settings ----
   r.get('/settings', (_req, res) => res.json(loom.settings.get()));
   r.patch('/settings', (req, res) => {

@@ -7,10 +7,12 @@ import { Kbd } from './ui';
 import { ShortcutHelp } from './ShortcutHelp';
 
 export const NAV: { to: string; label: string; key: string }[] = [
+  { to: '/today', label: 'Today', key: 't' },
   { to: '/review', label: 'Review', key: 'r' },
   { to: '/sources', label: 'Sources', key: 's' },
   { to: '/notes', label: 'Notes', key: 'n' },
   { to: '/cards', label: 'Cards', key: 'c' },
+  { to: '/graph', label: 'Graph', key: 'g' },
   { to: '/search', label: 'Search', key: '/' },
 ];
 

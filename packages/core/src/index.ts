@@ -14,6 +14,8 @@ import { createReview } from './services/review.ts';
 import { createTopics } from './services/topics.ts';
 import { createRelated } from './services/related.ts';
 import { createStudy } from './services/study.ts';
+import { createTasks } from './services/tasks.ts';
+import { createGraph } from './services/graph.ts';
 import type { NoteDetail, SourceDetail } from './types.ts';
 
 export * from './types.ts';
@@ -27,6 +29,8 @@ export type { Settings } from './services/settings.ts';
 export type { TopicMatch } from './services/topics.ts';
 export type { SimilarItem } from './services/related.ts';
 export type { StudyContext } from './services/study.ts';
+export type { GraphNode, GraphEdge } from './services/graph.ts';
+export { REVIEW_TASK_ID, type CompleteResult } from './services/tasks.ts';
 
 export interface LoomOptions {
   /** Path to the SQLite file. Defaults to $LOOM_DB or ~/.loom/loom.db. */
@@ -60,6 +64,8 @@ export function createLoom(opts: LoomOptions = {}) {
   const topics = createTopics(ctx, search);
   const related = createRelated(ctx, links, search, index);
   const study = createStudy(ctx, cards, review, topics);
+  const tasks = createTasks(ctx, review);
+  const graph = createGraph(ctx);
   cards.syncMissingClozes();
 
   const embeddings = {
@@ -82,7 +88,7 @@ export function createLoom(opts: LoomOptions = {}) {
       notes: notes.list({ sourceId: id, sort: 'location', limit: 1000 }).items,
       ...links.forItem('source', id),
       cardCount: cards.countForItem('source', id),
-      tasks: [],
+      tasks: tasks.list({ sourceId: id, view: 'all_open' }),
     };
   }
 
@@ -102,6 +108,8 @@ export function createLoom(opts: LoomOptions = {}) {
     topics,
     related,
     study,
+    tasks,
+    graph,
     embeddings,
     noteDetail,
     sourceDetail,

@@ -7,6 +7,9 @@ import { useHotkeys } from '../lib/hotkeys';
 import { Badge, Button, Empty, Input, Section, Select, TagInput, Textarea } from '../components/ui';
 import { Markdown } from '../components/Markdown';
 import { LinkList } from './NoteDetail';
+import { TaskForm } from '../components/TaskForm';
+import { TaskRow } from '../components/TaskRow';
+import { SimilarPanel } from '../components/SimilarPanel';
 
 export function SourceDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string };
@@ -15,6 +18,8 @@ export function SourceDetailPage() {
   const patch = useAction((body: Record<string, unknown>) => api.patch(`/sources/${id}`, body));
   const remove = useAction(() => api.del(`/sources/${id}`));
   const [capturing, setCapturing] = useState(false);
+  const [addingTask, setAddingTask] = useState(false);
+  const complete = useAction((tid: string) => api.post(`/tasks/${tid}/complete`));
   useHotkeys({ a: () => setCapturing(true) }, []);
 
   if (!s) return null;
@@ -127,8 +132,18 @@ export function SourceDetailPage() {
             {highlights.length} highlights · {others.length} notes · {s.cardCount} cards
           </div>
         </Section>
+        <Section title="Tasks" actions={<button className="text-xs text-accent hover:underline" onClick={() => setAddingTask(true)}>+ task</button>}>
+          {addingTask && <TaskForm sourceId={s.id} onDone={() => setAddingTask(false)} />}
+          <ul className="space-y-1.5">
+            {s.tasks.map((t) => (
+              <li key={t.id}><TaskRow task={t} onToggle={(x) => { complete.mutate(x.id); if (x.kind === 'read') setCapturing(true); }} /></li>
+            ))}
+          </ul>
+          {!s.tasks.length && !addingTask && <p className="text-xs text-faint">e.g. “Read chapter 4”</p>}
+        </Section>
         <LinkList title="Links" links={s.outgoing} dir="out" />
         <LinkList title="Backlinks" links={s.backlinks} dir="in" />
+        <SimilarPanel key={s.id} self={{ type: 'source', id: s.id, title: s.title, kind: s.kind }} />
         <div className="pt-4">
           <Button
             variant="danger"
@@ -147,7 +162,7 @@ export function SourceDetailPage() {
   );
 }
 
-function CaptureHighlight({ sourceId, onDone }: { sourceId: string; onDone: () => void }) {
+export function CaptureHighlight({ sourceId, onDone }: { sourceId: string; onDone: () => void }) {
   const [quote, setQuote] = useState('');
   const [location, setLocation] = useState('');
   const [body, setBody] = useState('');

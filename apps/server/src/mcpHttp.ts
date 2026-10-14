@@ -3,15 +3,12 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Loom } from '@loom/core';
 import { createMcpServer } from '@loom/mcp';
 
-export type McpAuth = (req: express.Request, res: express.Response) => boolean | Promise<boolean>;
-
 /**
  * Streamable HTTP MCP endpoint, stateless: each POST gets a fresh server+transport over the shared Loom
- * instance (cheap; all state lives in SQLite). `authorize` must return true or write a 401 itself.
+ * instance (cheap; all state lives in SQLite). `auth` runs first and must reject unauthenticated requests.
  */
-export function mountMcp(app: express.Express, loom: Loom, authorize: McpAuth, path = '/mcp') {
-  app.post(path, async (req, res) => {
-    if (!(await authorize(req, res))) return;
+export function mountMcp(app: express.Express, loom: Loom, auth: express.RequestHandler, path = '/mcp') {
+  app.post(path, auth, async (req, res) => {
     const server = createMcpServer(loom);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on('close', () => {

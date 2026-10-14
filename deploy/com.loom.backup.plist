@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Nightly `loom backup` at 03:15 (runs at next wake if the Mac was asleep).
+     Install: edit paths, then cp to ~/Library/LaunchAgents/ and launchctl load it. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.loom.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/YOU/code/learning-system/apps/server/src/cli.ts</string>
+    <string>backup</string>
+    <string>--keep</string><string>30</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>15</integer></dict>
+  <key>StandardOutPath</key><string>/Users/YOU/.loom/backup.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/.loom/backup.log</string>
+</dict>
+</plist>

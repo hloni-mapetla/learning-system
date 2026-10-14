@@ -9,7 +9,9 @@ const GROUPS: [string, [string, string][]][] = [
       ['/', 'Search page'],
       ['c', 'Create a note'],
       ['g s', 'Go to sources'],
+      ['g t', 'Go to today'],
       ['g n', 'Go to notes'],
+      ['g g', 'Go to graph'],
       ['g r', 'Go to review'],
       ['g c', 'Go to cards'],
       ['?', 'This help'],
@@ -20,7 +22,8 @@ const GROUPS: [string, [string, string][]][] = [
     [
       ['j / k', 'Move selection'],
       ['↵', 'Open selected'],
-      ['a', 'Add (source / highlight)'],
+      ['a', 'Add (task / source / highlight)'],
+      ['x', 'Complete task (today)'],
     ],
   ],
   [
@@ -32,6 +35,7 @@ const GROUPS: [string, [string, string][]][] = [
       ['{{c1::…}}', 'Cloze deletion → card'],
       ['⌘⇧C', 'Wrap selection as cloze'],
       ['C', 'New card from note'],
+      ['L', 'New typed link from note'],
     ],
   ],
   [
