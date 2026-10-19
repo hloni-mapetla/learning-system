@@ -66,9 +66,11 @@ Open http://127.0.0.1:4317. The UI is built for the keyboard; press <kbd>?</kbd>
 | Keys | Action |
 |---|---|
 | <kbd>⌘K</kbd> | Command palette with search (hybrid keyword + semantic) |
-| <kbd>g</kbd> then <kbd>t r s n c g i m</kbd> | Go to Today / Review / Sources / Notes / Cards / Graph / Stats / Import |
+| <kbd>g</kbd> then <kbd>t r s n d c g i m</kbd> | Go to Today / Review / Sources / Notes / Daily note / Cards / Graph / Stats / Import |
 | <kbd>/</kbd> | Search page (switch between Hybrid, Keyword and Semantic) |
 | <kbd>c</kbd> | New note |
+| <kbd>q</kbd> | Quick capture a thought from anywhere: <kbd>⌘↵</kbd> saves a standalone note, <kbd>⌘⇧↵</kbd> adds it to today's daily note |
+| <kbd>g</kbd> <kbd>d</kbd>, then <kbd>[</kbd> / <kbd>]</kbd> | Today's daily note; previous / next day |
 | <kbd>j</kbd> <kbd>k</kbd> <kbd>↵</kbd> | Move and open in any list; <kbd>x</kbd> completes a task on Today |
 | <kbd>a</kbd> | Add: a task (Today), a source (Sources), a highlight (on a source) |
 | <kbd>e</kbd> / <kbd>esc</kbd> | Edit / stop editing a note. `[[` autocompletes links; select text and press <kbd>⌘⇧C</kbd> to make a cloze |
@@ -82,6 +84,7 @@ The main pieces:
 - **Sources:** books, articles, papers, videos, lectures and podcasts, each with status (queued, reading, done, abandoned), priority 1–5, tags, highlights and notes (ordered by page or location), tasks, and possible connections.
 - **Recall first:** a source with highlights and no recall opens with a *Recall first* box, and its highlights stay hidden until you've written what you remember (or pressed <kbd>s</kbd> to skip). After the recall you draft the key ideas yourself as concept and claim notes. Each source records how it was processed (*recall first* or *highlights first*) so you can later compare which works better for you. Expect the first 2–3 weeks to feel harder than rereading; that's the effort doing its job.
 - **Authorship:** notes and sources record who wrote them. Notes Claude drafted are marked *by Claude* and imported quotes *imported*; your own work is unmarked. You can correct it on a note's properties.
+- **Your own notes (second brain):** not everything comes from a book. Notes without a source are your own ideas, questions and plans, and they get the same links, search, graph and cards as everything else. The Notes page filters to *My own notes*. The **daily note** (one per day, titled by date, so `[[2026-10-18]]` links to it) collects quick, time-stamped thoughts. You can add to it from anywhere with <kbd>q</kbd>, or by telling Claude "note this…".
 - **Notes:** Markdown with `[[wikilinks]]` (links to notes that don't exist yet show in orange and connect automatically once the note is created), backlinks, typed links (*supports, contradicts, example of, prerequisite of, related*), and cards. Kinds are `note`, `highlight`, `concept`, `claim`, `summary`, `recall` (a blank-page recall of a source) and `explanation` (you explaining a concept in your own words); concepts and claims are your atomic ideas.
 - **Cloze from notes:** write `{{c1::hidden text}}` (or `{{c1::answer::hint}}`) in any note and Loom keeps a cloze card per deletion in sync. Editing the note updates the card without losing its review history.
 - **Graph:** global or local (open it from a note), with edges colored by relationship type and notes clustered around their source.
@@ -166,8 +169,8 @@ Ratings use this rubric: **again** = not recalled or wrong (or only after the an
 | Area | Tools |
 |---|---|
 | Review | `get_due_cards(limit, topic?)`, `record_review(card_id, rating, notes?)`, `undo_review`, `get_card`, `get_review_stats` |
-| Read | `search_knowledge(query, semantic=true)`, `get_note`, `get_source`, `list_sources`, `get_related(id)`, `find_connections(id \| topic)`, `get_study_context(topic)`, `list_tags` |
-| Write | `create_source`, `update_source`, `create_note(authored_by)`, `update_note`, `create_card`, `update_card`, `create_link`, `import_highlights` |
+| Read | `search_knowledge(query, semantic=true)`, `list_notes(scope=standalone\|sourced, since?)`, `get_note`, `get_source`, `list_sources`, `get_related(id)`, `find_connections(id \| topic)`, `get_study_context(topic)`, `list_tags` |
+| Write | `create_source`, `update_source`, `create_note(authored_by)` (omit `source_id` for a standalone note), `append_to_daily_note(text)`, `update_note`, `create_card`, `update_card`, `create_link`, `import_highlights` |
 | Recall first | `start_recall(source_id)`, `save_recall(source_id, text)`, `skip_recall`, `get_recall_review(source_id)` (recall next to highlights, with a similarity hint per highlight) |
 | Tasks | `list_tasks(view)` (today, upcoming, all_open, done, reading_queue), `create_task`, `complete_task`, `update_task` |
 

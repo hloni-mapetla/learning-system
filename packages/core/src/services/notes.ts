@@ -3,7 +3,7 @@ import type { Actor, Note, NoteKind } from '../types.ts';
 import type { NoteCreate, NotePatch } from '../schemas.ts';
 import type { Tags } from './tags.ts';
 import type { Links } from './links.ts';
-import { newId, nowIso, NotFoundError, parseJsonArray, truncate, ValidationError } from '../util.ts';
+import { localDate, newId, nowIso, NotFoundError, parseJsonArray, truncate, ValidationError } from '../util.ts';
 import { enqueueEmbedding } from './embeddings.ts';
 
 export function toNote(r: any, tags: string[]): Note {
@@ -36,6 +36,10 @@ function deriveTitle(input: { title?: string; body?: string; quote?: string | nu
 
 export interface NoteListOpts {
   sourceId?: string;
+  /** standalone = your own notes not tied to any source (the "second brain"); sourced = notes on a source. */
+  scope?: 'standalone' | 'sourced';
+  /** Only notes created or updated since this ISO timestamp / YYYY-MM-DD. */
+  since?: string;
   kind?: NoteKind | NoteKind[];
   tag?: string;
   limit?: number;
@@ -145,6 +149,12 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
       where.push('n.source_id = :sourceId');
       p.sourceId = opts.sourceId;
     }
+    if (opts.scope === 'standalone') where.push('n.source_id IS NULL');
+    if (opts.scope === 'sourced') where.push('n.source_id IS NOT NULL');
+    if (opts.since) {
+      where.push('n.updated_at >= :since');
+      p.since = opts.since.length === 10 ? new Date(`${opts.since}T00:00:00`).toISOString() : opts.since;
+    }
     if (opts.kind) {
       where.push('n.kind IN (SELECT value FROM json_each(:kinds))');
       p.kinds = JSON.stringify(Array.isArray(opts.kind) ? opts.kind : [opts.kind]);
@@ -186,6 +196,34 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
     );
   }
 
-  return { get, create, update, remove, list, suggestTitles };
+  /** The daily note for a local date (YYYY-MM-DD, default today), created on first use. Titled by date so [[2026-10-18]] links to it. */
+  function daily(date: string = localDate()): Note {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ValidationError(`Invalid date: ${date}`);
+    const key = `daily:${date}`;
+    const existing = db.get<{ id: string }>('SELECT id FROM notes WHERE dedupe_key = ?', [key]);
+    if (existing) return get(existing.id);
+    return create({ title: date, kind: 'note', body: '', dedupeKey: key }, 'user');
+  }
+
+  /** Append a thought to a daily note as its own paragraph, stamped with the local time. */
+  function appendDaily(text: string, opts: { date?: string; now?: Date } = {}): Note {
+    const t = text.trim();
+    if (!t) throw new ValidationError('Nothing to append');
+    const n = daily(opts.date);
+    const now = opts.now ?? new Date();
+    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const body = n.body.trim() ? `${n.body.trimEnd()}\n\n**${time}** ${t}` : `**${time}** ${t}`;
+    return update(n.id, { body });
+  }
+
+  /** Dates that have a daily note, newest first. */
+  function dailyDates(limit = 60): { date: string; id: string }[] {
+    return db.all<{ date: string; id: string }>(
+      `SELECT substr(dedupe_key, 7) AS date, id FROM notes WHERE dedupe_key LIKE 'daily:%' ORDER BY dedupe_key DESC LIMIT ?`,
+      [limit],
+    );
+  }
+
+  return { get, create, update, remove, list, suggestTitles, daily, appendDaily, dailyDates };
 }
 export type Notes = ReturnType<typeof createNotes>;

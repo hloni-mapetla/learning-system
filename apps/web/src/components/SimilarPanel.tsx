@@ -38,7 +38,7 @@ export function SimilarPanel({ self }: { self: ItemRef & { type: ItemType } }) {
             </Link>
             <div className="text-xs text-faint">
               {s.sourceTitle && s.type === 'note' ? `${s.sourceTitle} · ` : ''}
-              {Math.round(s.score * 100)}% similar
+              {s.score <= 1 ? `${Math.round(s.score * 100)}% similar` : 'keyword match'}
             </div>
             <div className="mt-0.5 flex gap-3 text-xs">
               <button className="text-accent hover:underline" onClick={() => setLinking(s)}>link…</button>

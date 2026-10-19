@@ -362,7 +362,61 @@ export function registerTools(server: McpServer, loom: Loom) {
     async () => json(loom.tags.list()),
   );
 
+  server.registerTool(
+    'list_notes',
+    {
+      title: 'List notes',
+      description:
+        "Browse notes, newest first. scope=standalone for the learner's own notes not tied to any source (their second brain), " +
+        'scope=sourced for notes on books/articles. Filter by kind, tag, or since (YYYY-MM-DD). Use get_note for full text.',
+      inputSchema: {
+        scope: z.enum(['all', 'standalone', 'sourced']).default('all'),
+        kinds: z.array(z.enum(NOTE_KINDS)).optional(),
+        tag: z.string().optional(),
+        since: z.string().optional().describe('YYYY-MM-DD or ISO timestamp'),
+        limit: z.number().int().min(1).max(100).default(20),
+      },
+      annotations: READ,
+    },
+    async ({ scope, kinds, tag, since, limit }) => {
+      const { items, total } = loom.notes.list({ scope: scope === 'all' ? undefined : scope, kind: kinds, tag, since, limit });
+      return json({
+        total,
+        notes: items.map((n) => ({
+          id: n.id,
+          kind: n.kind,
+          title: n.title,
+          source: n.sourceTitle ?? undefined,
+          created_by: n.createdBy,
+          tags: n.tags.length ? n.tags : undefined,
+          preview: (n.body || n.quote || '').slice(0, 160) || undefined,
+          updated_at: n.updatedAt,
+        })),
+      });
+    },
+  );
+
   // ================= knowledge: write =================
+
+  server.registerTool(
+    'append_to_daily_note',
+    {
+      title: 'Append to daily note',
+      description:
+        "Jot a thought into the learner's daily note (one standalone note per day, created on first use, titled YYYY-MM-DD), " +
+        'stamped with the time. Use when they say "note this", "remember that…", "add to my journal". Save their words, not your paraphrase.',
+      inputSchema: {
+        text: z.string().min(1).describe("The learner's thought, in their words"),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Defaults to today (local)'),
+      },
+      annotations: WRITE,
+    },
+    async ({ text, date }) => {
+      const n = loom.notes.appendDaily(text, { date });
+      kick();
+      return json({ id: n.id, title: n.title, chars: n.body.length });
+    },
+  );
 
   server.registerTool(
     'create_source',
@@ -419,7 +473,7 @@ export function registerTools(server: McpServer, loom: Loom) {
     {
       title: 'Create note',
       description:
-        'Create a note. kinds: note (general), highlight (a quote from a source; set quote + location), concept (an atomic idea), ' +
+        'Create a note. Omit source_id for a standalone note (the learner\'s own ideas, not tied to any book). kinds: note (general), highlight (a quote from a source; set quote + location), concept (an atomic idea), ' +
         'claim (an arguable proposition), summary, explanation (the learner explaining a concept in their own words). ' +
         'Body is Markdown; [[Title]] creates a wikilink; {{c1::text}} creates cloze cards automatically. ' +
         'authored_by: "user" ONLY when saving the learner\'s own words (verbatim; fixing typos is fine), "claude" for anything you drafted ' +

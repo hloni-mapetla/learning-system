@@ -64,6 +64,8 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
     res.json(
       loom.notes.list({
         sourceId: str(req.query.sourceId),
+        scope: str(req.query.scope) as any,
+        since: str(req.query.since),
         kind: list(req.query.kind) as any,
         tag: str(req.query.tag),
         sort: str(req.query.sort) as any,
@@ -72,6 +74,13 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
       }),
     );
   });
+  // Daily notes: one standalone note per day, created on first use.
+  r.post('/notes/daily', (req, res) => res.json(loom.notes.daily(z.object({ date: z.string().optional() }).parse(req.body ?? {}).date)));
+  r.post('/notes/daily/append', (req, res) => {
+    const b = z.object({ text: z.string().min(1), date: z.string().optional() }).parse(req.body);
+    res.json(loom.notes.appendDaily(b.text, { date: b.date }));
+  });
+  r.get('/notes/daily/dates', (_req, res) => res.json(loom.notes.dailyDates()));
   r.post('/notes', (req, res) => res.status(201).json(loom.notes.create(schemas.NoteCreate.parse(req.body))));
   r.get('/notes/:id', (req, res) => res.json(loom.noteDetail(req.params.id)));
   r.patch('/notes/:id', (req, res) => res.json(loom.notes.update(req.params.id, schemas.NotePatch.parse(req.body))));

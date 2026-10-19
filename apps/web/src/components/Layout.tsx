@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
+import type { Note } from '@loom/core/types';
+import { QuickCapture } from './QuickCapture';
 import { api, useApi } from '../lib/api';
 import { useHotkeys } from '../lib/hotkeys';
 import { CommandPalette, type Command } from './CommandPalette';
@@ -11,6 +13,7 @@ export const NAV: { to: string; label: string; key: string }[] = [
   { to: '/review', label: 'Review', key: 'r' },
   { to: '/sources', label: 'Sources', key: 's' },
   { to: '/notes', label: 'Notes', key: 'n' },
+  { to: '/daily', label: 'Daily note', key: 'd' },
   { to: '/cards', label: 'Cards', key: 'c' },
   { to: '/graph', label: 'Graph', key: 'g' },
   { to: '/stats', label: 'Stats', key: 'i' },
@@ -27,6 +30,17 @@ export function Layout() {
   const [palette, setPalette] = useState(false);
   const [help, setHelp] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const [capture, setCapture] = useState(false);
+  const [toast, setToast] = useState<{ id: string; text: string } | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+  const onCaptured = (n: Note, where: 'note' | 'daily') => {
+    setCapture(false);
+    setToast({ id: n.id, text: where === 'daily' ? `Added to ${n.title}` : `Saved “${n.title}”` });
+  };
   const navigate = useNavigate();
   const status = useApi<Status>('/status', { refetchInterval: 10_000 });
 
@@ -37,6 +51,7 @@ export function Layout() {
 
   const commands: Command[] = [
     { id: 'new-note', label: 'New note', hint: 'c', run: newNote },
+    { id: 'quick-capture', label: 'Quick capture (a thought, not from a source)', hint: 'q', run: () => setCapture(true) },
     { id: 'new-source', label: 'New source', hint: 'g s, a', run: () => navigate({ to: '/sources', search: { add: true } as any }) },
     ...NAV.map((n) => ({ id: `go-${n.to}`, label: `Go to ${n.label}`, hint: n.key === '/' ? '/' : `g ${n.key}`, run: () => navigate({ to: n.to }) })),
     { id: 'help', label: 'Keyboard shortcuts', hint: '?', run: () => setHelp(true) },
@@ -48,6 +63,7 @@ export function Layout() {
       'shift+?': () => setHelp((h) => !h),
       '/': () => navigate({ to: '/search' }),
       c: newNote,
+      q: () => setCapture(true),
       ...Object.fromEntries(NAV.filter((n) => n.key !== '/').map((n) => [`g ${n.key}`, () => navigate({ to: n.to })])),
     },
     [],
@@ -106,6 +122,13 @@ export function Layout() {
       </main>
       <CommandPalette open={palette} onClose={() => setPalette(false)} commands={commands} />
       {help && <ShortcutHelp onClose={() => setHelp(false)} />}
+      {capture && <QuickCapture onClose={() => setCapture(false)} onSaved={onCaptured} />}
+      {toast && (
+        <div className="fixed right-4 bottom-4 z-50 flex items-center gap-3 rounded-lg border border-line bg-panel px-4 py-2.5 text-sm shadow-lg">
+          {toast.text}
+          <Link to="/notes/$id" params={{ id: toast.id }} onClick={() => setToast(null)} className="text-accent hover:underline">Open</Link>
+        </div>
+      )}
     </div>
   );
 }

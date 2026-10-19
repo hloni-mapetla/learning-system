@@ -228,3 +228,16 @@ describe('MCP recall-first processing', () => {
     expect(client.getInstructions()).toMatch(/The learner generates first/);
   });
 });
+
+describe('MCP second-brain tools', () => {
+  it('appends to the daily note and lists standalone notes', async () => {
+    const r = await call('append_to_daily_note', { text: 'Idea: spaced repetition for recipes' });
+    expect(r.title).toBe(localDate());
+    await call('append_to_daily_note', { text: 'Second thought' });
+    expect(loom.notes.get(r.id).body).toMatch(/spaced repetition for recipes[\s\S]*Second thought/);
+    const own = await call('create_note', { title: 'Personal theory', body: 'Mine', authored_by: 'user' });
+    const list = await call('list_notes', { scope: 'standalone' });
+    expect(list.notes.map((n: any) => n.id).sort()).toEqual([r.id, own.id].sort());
+    expect((await call('list_notes', { scope: 'sourced' })).total).toBe(2);
+  });
+});

@@ -109,3 +109,34 @@ describe('search', () => {
     expect(loom.db.get(`SELECT value FROM meta WHERE key='chunks_version'`)!.value).toBe(v1);
   });
 });
+
+describe('second brain: standalone and daily notes', () => {
+  it('filters standalone vs sourced notes', () => {
+    const loom = testLoom();
+    const s = loom.sources.create({ title: 'A book' });
+    loom.notes.create({ title: 'On the book', sourceId: s.id });
+    loom.notes.create({ title: 'My own idea' });
+    expect(loom.notes.list({ scope: 'standalone' }).items.map((n) => n.title)).toEqual(['My own idea']);
+    expect(loom.notes.list({ scope: 'sourced' }).items.map((n) => n.title)).toEqual(['On the book']);
+    expect(loom.notes.list({ since: '2000-01-01' }).total).toBe(2);
+    expect(loom.notes.list({ since: '2999-01-01' }).total).toBe(0);
+  });
+
+  it('creates one daily note per date and appends time-stamped thoughts', () => {
+    const loom = testLoom();
+    const a = loom.notes.daily('2026-10-18');
+    expect(a).toMatchObject({ title: '2026-10-18', kind: 'note', sourceId: null, createdBy: 'user' });
+    expect(loom.notes.daily('2026-10-18').id).toBe(a.id);
+    loom.notes.appendDaily('First thought', { date: '2026-10-18', now: new Date(2026, 9, 18, 9, 5) });
+    const n = loom.notes.appendDaily('Links to [[Cognitive ease]]', { date: '2026-10-18', now: new Date(2026, 9, 18, 14, 30) });
+    expect(n.body).toBe('**09:05** First thought\n\n**14:30** Links to [[Cognitive ease]]');
+    expect(loom.noteDetail(n.id).outgoing[0]).toMatchObject({ rel: 'wikilink', targetTitle: 'Cognitive ease' });
+    loom.notes.daily('2026-10-17');
+    expect(loom.notes.dailyDates().map((d) => d.date)).toEqual(['2026-10-18', '2026-10-17']);
+    // [[2026-10-18]] elsewhere resolves to the daily note
+    const other = loom.notes.create({ title: 'Ref', body: 'See [[2026-10-18]]' });
+    expect(loom.noteDetail(other.id).outgoing[0].to?.id).toBe(a.id);
+    expect(() => loom.notes.daily('yesterday')).toThrow(/Invalid date/);
+    expect(() => loom.notes.appendDaily('  ')).toThrow(/Nothing to append/);
+  });
+});

@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { NOTE_KINDS, type Note } from '@loom/core/types';
-import { qs, useApi } from '../lib/api';
+import { api, qs, useApi } from '../lib/api';
 import { relTime } from '../lib/format';
 import { useListNav } from '../lib/useListNav';
 import { AuthorBadge } from '../components/RecallBox';
-import { Badge, Empty, PageHeader, Select } from '../components/ui';
+import { Badge, Button, Empty, PageHeader, Select } from '../components/ui';
 
 export function NotesPage() {
   const navigate = useNavigate();
   const [kind, setKind] = useState('');
+  const [scope, setScope] = useState('');
   const [tag, setTag] = useState('');
   const tags = useApi<{ name: string; notes: number }[]>('/tags');
-  const { data } = useApi<{ items: Note[]; total: number }>(`/notes${qs({ kind, tag, limit: 300 })}`);
+  const { data } = useApi<{ items: Note[]; total: number }>(`/notes${qs({ kind, tag, scope, limit: 300 })}`);
   const items = data?.items ?? [];
   const [sel] = useListNav(items.length, (i) => navigate({ to: '/notes/$id', params: { id: items[i].id } }));
 
@@ -20,9 +21,30 @@ export function NotesPage() {
     <div>
       <PageHeader
         title="Notes"
-        subtitle={`${data?.total ?? 0} notes, highlights, concepts and claims`}
+        subtitle={
+          scope === 'standalone'
+            ? `${data?.total ?? 0} note${data?.total === 1 ? '' : 's'} of your own, not tied to any source`
+            : `${data?.total ?? 0} notes, highlights, concepts and claims`
+        }
         actions={
           <>
+            <Button
+              variant="primary"
+              onClick={async () => {
+                const n = await api.post<{ id: string }>('/notes', { title: 'Untitled note' });
+                navigate({ to: '/notes/$id', params: { id: n.id }, search: { edit: true, focusTitle: true } as any });
+              }}
+            >
+              New note <span className="font-mono text-xs opacity-70">c</span>
+            </Button>
+            <Link to="/daily" className="inline-flex h-8 items-center rounded-md border border-line bg-panel px-3 text-sm hover:bg-sunken">
+              Daily note <span className="ml-1 font-mono text-xs text-faint">g d</span>
+            </Link>
+            <Select value={scope} onChange={(e) => setScope(e.target.value)}>
+              <option value="">All notes</option>
+              <option value="standalone">My own notes (no source)</option>
+              <option value="sourced">From sources</option>
+            </Select>
             <Select value={kind} onChange={(e) => setKind(e.target.value)}>
               <option value="">All kinds</option>
               {NOTE_KINDS.map((k) => <option key={k}>{k}</option>)}

@@ -8,6 +8,8 @@ const GROUPS: [string, [string, string][]][] = [
       ['⌘K', 'Command palette / search'],
       ['/', 'Search page'],
       ['c', 'Create a note'],
+      ['q', 'Quick capture a thought'],
+      ['g d', "Today's daily note"],
       ['g s', 'Go to sources'],
       ['g t', 'Go to today'],
       ['g n', 'Go to notes'],
@@ -49,6 +51,7 @@ const GROUPS: [string, [string, string][]][] = [
       ['⌘⇧C', 'Wrap selection as cloze'],
       ['C', 'New card from note'],
       ['L', 'New typed link from note'],
+      ['[ / ]', 'Daily note: previous / next day'],
     ],
   ],
   [

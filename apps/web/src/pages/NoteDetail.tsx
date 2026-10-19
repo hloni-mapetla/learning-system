@@ -12,6 +12,7 @@ import { LinkForm } from '../components/LinkForm';
 import { SimilarPanel } from '../components/SimilarPanel';
 import { Markdown } from '../components/Markdown';
 import { AuthorBadge } from '../components/RecallBox';
+import { dailyDateOf, shiftDate } from './Daily';
 
 const REL_LABEL: Record<string, [string, string]> = {
   wikilink: ['links to', 'linked from'],
@@ -98,7 +99,12 @@ export function NoteDetailPage() {
   };
   useEffect(() => () => flush(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useHotkeys({ e: () => setEditing(true), C: () => setAddingCard(true), L: () => setAddingLink(true) }, []);
+  const dailyDate = n ? dailyDateOf(n) : null;
+  const goDay = (days: number) => dailyDate && navigate({ to: '/daily', search: { date: shiftDate(dailyDate, days) } as any });
+  useHotkeys(
+    { e: () => setEditing(true), C: () => setAddingCard(true), L: () => setAddingLink(true), '[': () => goDay(-1), ']': () => goDay(1) },
+    [dailyDate],
+  );
 
   const dangling = useMemo(
     () => new Set((n?.outgoing ?? []).filter((l) => !l.to && l.targetTitle).map((l) => l.targetTitle!.toLowerCase())),
@@ -120,6 +126,12 @@ export function NoteDetailPage() {
             </Link>
           )}
           {n.location && <span>· {n.location}</span>}
+          {dailyDate && (
+            <span className="flex gap-2">
+              <button onClick={() => goDay(-1)} className="hover:text-accent">← prev day <span className="font-mono">[</span></button>
+              <button onClick={() => goDay(1)} className="hover:text-accent">next day <span className="font-mono">]</span> →</button>
+            </span>
+          )}
           <span className="ml-auto">edited {relTime(n.updatedAt)}</span>
         </div>
         <input
