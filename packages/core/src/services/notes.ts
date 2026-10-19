@@ -1,5 +1,5 @@
 import type { Ctx } from './context.ts';
-import type { Note, NoteKind } from '../types.ts';
+import type { Actor, Note, NoteKind } from '../types.ts';
 import type { NoteCreate, NotePatch } from '../schemas.ts';
 import type { Tags } from './tags.ts';
 import type { Links } from './links.ts';
@@ -18,6 +18,7 @@ export function toNote(r: any, tags: string[]): Note {
     sourceTitle: r.source_title ?? null,
     aliases: parseJsonArray(r.aliases),
     tags,
+    createdBy: r.created_by ?? 'user',
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -60,7 +61,8 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
     for (const f of ctx.onNoteSaved) f(id);
   }
 
-  function create(input: NoteCreate): Note {
+  /** createdBy: who wrote the text. Claude must pass 'user' only for the learner's own words. */
+  function create(input: NoteCreate, createdBy: Actor = 'user'): Note {
     if (input.sourceId && !db.get('SELECT 1 FROM sources WHERE id = ?', [input.sourceId])) {
       throw new NotFoundError('source', input.sourceId);
     }
@@ -75,8 +77,8 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
     const body = input.body ?? '';
     db.tx(() => {
       db.run(
-        `INSERT INTO notes (id, kind, title, body, quote, location, source_id, aliases, dedupe_key, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO notes (id, kind, title, body, quote, location, source_id, aliases, dedupe_key, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           input.kind ?? (input.quote ? 'highlight' : 'note'),
@@ -87,6 +89,7 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
           input.sourceId ?? null,
           aliases,
           input.dedupeKey ?? null,
+          createdBy,
           now,
           now,
         ],
@@ -108,8 +111,8 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
     const body = patch.body ?? cur.body;
     db.tx(() => {
       db.run(
-        `UPDATE notes SET kind = ?, title = ?, body = ?, quote = ?, location = ?, source_id = ?, aliases = ?, updated_at = ?
-         WHERE id = ?`,
+        `UPDATE notes SET kind = ?, title = ?, body = ?, quote = ?, location = ?, source_id = ?, aliases = ?, created_by = ?,
+           updated_at = ? WHERE id = ?`,
         [
           patch.kind ?? cur.kind,
           title,
@@ -118,6 +121,7 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
           patch.location !== undefined ? patch.location?.trim() || null : cur.location,
           patch.sourceId !== undefined ? patch.sourceId : cur.sourceId,
           aliases,
+          patch.createdBy ?? cur.createdBy,
           nowIso(),
           id,
         ],

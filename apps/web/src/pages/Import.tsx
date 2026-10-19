@@ -22,7 +22,10 @@ function Report({ r }: { r: Result }) {
           ))}
         </ul>
       )}
-      <div className="mt-1 text-xs text-muted">Next: ask Claude to “process reading” for these to turn highlights into concepts and cards.</div>
+      <div className="mt-1 text-xs text-muted">
+        Next: <b>recall first</b>. Open each source and write what you remember before reading the highlights (they stay hidden until
+        you do). Then draft your own notes, or ask Claude to “process reading” to compare your recall with the highlights and critique your drafts.
+      </div>
     </div>
   );
 }

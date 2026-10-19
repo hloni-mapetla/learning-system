@@ -37,7 +37,11 @@ async function main() {
     allowPositionals: true,
     strict: false,
   });
-  const loom = () => createLoom(process.env.LOOM_NO_EMBED ? { embedder: null } : {});
+  const loom = () => {
+    const l = createLoom(process.env.LOOM_NO_EMBED ? { embedder: null } : {});
+    if (l.db.migrationBackup) console.error(`Upgraded the Loom database; the previous version is backed up at ${l.db.migrationBackup}`);
+    return l;
+  };
 
   switch (cmd) {
     case 'serve': {

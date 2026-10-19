@@ -4,6 +4,7 @@ import { NOTE_KINDS, type Note } from '@loom/core/types';
 import { qs, useApi } from '../lib/api';
 import { relTime } from '../lib/format';
 import { useListNav } from '../lib/useListNav';
+import { AuthorBadge } from '../components/RecallBox';
 import { Badge, Empty, PageHeader, Select } from '../components/ui';
 
 export function NotesPage() {
@@ -49,6 +50,7 @@ export function NotesPage() {
                     </div>
                   )}
                 </div>
+                <AuthorBadge by={n.createdBy} />
                 <span className="shrink-0 text-xs text-faint">{relTime(n.updatedAt)}</span>
               </Link>
             </li>

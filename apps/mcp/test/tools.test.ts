@@ -117,6 +117,7 @@ describe('MCP server', () => {
       refs: [{ type: 'note', id: ids.ease }, { type: 'note', id: ids.outside }],
     });
     expect(loom.cards.get(syn.id)).toMatchObject({ createdBy: 'claude', type: 'synthesis' });
+    expect(loom.notes.get(n.id).createdBy).toBe('claude'); // Claude's drafts are marked as Claude's by default
 
     const link = await call('create_link', { from_id: ids.ease, to_id: ids.outside, rel: 'supports', rationale: 'Fluency-driven belief is why the inside view misleads' });
     expect(link).toMatchObject({ from: 'Cognitive ease', rel: 'supports', to: 'Outside view' });
@@ -145,13 +146,13 @@ describe('MCP server', () => {
 });
 
 describe('MCP task tools', () => {
-  it('lists today with the review task, completes reading tasks with a capture follow-up', async () => {
+  it('lists today with the review task, completes reading tasks with a recall follow-up', async () => {
     const t = await call('create_task', { title: 'Read ch. 4', kind: 'read', source_id: ids.tetlock, due: localDate() });
     const today = await call('list_tasks', { view: 'today' });
     expect(today[0]).toMatchObject({ id: 'review-today', virtual: true });
     expect(today.map((x: any) => x.title)).toContain('Read ch. 4');
     const done = await call('complete_task', { task_id: t.id });
-    expect(done.follow_up).toMatchObject({ action: 'capture_highlights', sourceTitle: 'Superforecasting' });
+    expect(done.follow_up).toMatchObject({ action: 'blank_page_recall', sourceTitle: 'Superforecasting' });
     expect((await call('complete_task', { task_id: 'review-today' })).error).toMatch(/completes itself/);
     const queue = await call('list_tasks', { view: 'reading_queue' });
     expect(queue.map((s: any) => s.title)).toContain('Superforecasting');
@@ -174,5 +175,56 @@ describe('MCP import & stats tools', () => {
     expect(s.reviewed_today).toBe(1);
     expect(s.weakest_sources[0]).toMatchObject({ name: 'Thinking, Fast and Slow', cards: 1 });
     expect(s.forecast_next_7_days).toHaveLength(7);
+  });
+});
+
+describe('MCP recall-first processing', () => {
+  it('runs recall → compare → learner-authored notes, without leaking highlights before the recall', async () => {
+    await call('import_highlights', {
+      text: 'Fluent stories feel true even when they are not.\n\nBase rates beat vivid anecdotes.\n\nForecasts improve with frequent small updates.',
+      source_id: ids.tetlock,
+    });
+    const start = await call('start_recall', { source_id: ids.tetlock });
+    expect(start).toMatchObject({ recall_state: 'none', highlight_count: 3 });
+    expect(start.prompt_for_learner).toMatch(/what do you remember/i);
+    expect(JSON.stringify(start)).not.toContain('anecdotes');
+    expect((await call('get_source', { id: ids.tetlock })).recall_state).toBe('none');
+
+    const saved = await call('save_recall', { source_id: ids.tetlock, text: 'Start from base rates, not vivid anecdotes. Update often.' });
+    expect(saved.method).toBe('recall_first');
+    expect(loom.notes.get(saved.recall_note_id)).toMatchObject({ kind: 'recall', createdBy: 'user' });
+
+    const review = await call('get_recall_review', { source_id: ids.tetlock });
+    expect(review.recalls[0].text).toBe('Start from base rates, not vivid anecdotes. Update often.');
+    const sim = (w: string) => review.highlights.find((h: any) => h.quote.includes(w)).similarity;
+    expect(sim('anecdotes')).toBeGreaterThan(sim('Fluent'));
+    expect(review.own_notes.map((n: any) => n.title)).toEqual(['Outside view']);
+
+    const mine = await call('create_note', { title: 'Base rates first', kind: 'claim', body: 'In my words.', source_id: ids.tetlock, authored_by: 'user' });
+    expect(mine.authored_by).toBe('user');
+    await expect(call('create_note', { kind: 'recall', body: 'x', source_id: ids.tetlock })).rejects.toThrow(/save_recall/);
+    expect((await call('get_source', { id: ids.tetlock })).recall_state).toBe('done');
+  });
+
+  it('skip_recall marks the source highlights_first', async () => {
+    const r = await call('skip_recall', { source_id: ids.kahneman });
+    expect(r.recall_state).toBe('skipped');
+    expect(loom.sources.get(ids.kahneman).method).toBe('highlights_first');
+  });
+
+  it('process_reading asks for recall before highlights and for my drafts before Claude\'s', async () => {
+    const p = await client.getPrompt({ name: 'process_reading', arguments: { source: 'Superforecasting' } });
+    const text = (p.messages[0].content as { text: string }).text;
+    const at = (s: string) => {
+      const i = text.indexOf(s);
+      expect(i, s).toBeGreaterThan(-1);
+      return i;
+    };
+    expect(at('save_recall')).toBeLessThan(at('get_recall_review'));
+    expect(at('get_recall_review')).toBeLessThan(at('I draft the notes'));
+    expect(at('I draft the notes')).toBeLessThan(at('suggest for me'));
+    expect(text).toMatch(/Don't show, quote, summarise/);
+    expect(text).toContain('authored_by "user"');
+    expect(client.getInstructions()).toMatch(/The learner generates first/);
   });
 });

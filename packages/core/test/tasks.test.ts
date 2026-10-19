@@ -23,14 +23,15 @@ describe('tasks', () => {
     expect(loom.tasks.list({ view: 'upcoming' }).map((t) => t.title)).toEqual(['tomorrow']);
   });
 
-  it('completing a reading task prompts capture and starts the source', () => {
+  it('completing a reading task asks for a blank-page recall and starts the source', () => {
     const loom = testLoom();
     const s = loom.sources.create({ title: 'Meditations' });
     const t = loom.tasks.create({ title: 'Read book 1', kind: 'read', sourceId: s.id });
     const r = loom.tasks.complete(t.id);
     expect(r.task.status).toBe('done');
     expect(r.task.completedAt).toBeTruthy();
-    expect(r.followUp).toMatchObject({ action: 'capture_highlights', sourceId: s.id, sourceTitle: 'Meditations' });
+    expect(r.followUp).toMatchObject({ action: 'blank_page_recall', sourceId: s.id, sourceTitle: 'Meditations' });
+    expect(r.followUp!.message).toMatch(/what do you remember/i);
     expect(loom.sources.get(s.id).status).toBe('reading');
     expect(loom.tasks.complete(loom.tasks.create({ title: 'x' }).id).followUp).toBeNull();
     expect(loom.tasks.list({ view: 'done' })).toHaveLength(2);

@@ -73,13 +73,16 @@ Open http://127.0.0.1:4317. The UI is built for the keyboard; press <kbd>?</kbd>
 | <kbd>a</kbd> | Add: a task (Today), a source (Sources), a highlight (on a source) |
 | <kbd>e</kbd> / <kbd>esc</kbd> | Edit / stop editing a note. `[[` autocompletes links; select text and press <kbd>⌘⇧C</kbd> to make a cloze |
 | <kbd>C</kbd> / <kbd>L</kbd> | On a note: new card / new typed link |
+| <kbd>r</kbd>, <kbd>⌘↵</kbd>, <kbd>s</kbd>, <kbd>n</kbd> / <kbd>N</kbd> | On a source: recall from memory, save it, skip the recall, draft a concept / claim note |
 | <kbd>space</kbd>, <kbd>1</kbd>–<kbd>4</kbd>, <kbd>u</kbd>, <kbd>!</kbd> | Review: reveal, Again/Hard/Good/Easy, undo, suspend |
 
 The main pieces:
 
-- **Today:** a computed "Review N due cards" task, overdue and today's tasks, upcoming and someday tasks, and your reading queue ordered by priority. Completing a *read* task opens a box to capture highlights for that source right away, or reminds you tomorrow.
+- **Today:** a computed "Review N due cards" task, overdue and today's tasks, upcoming and someday tasks, and your reading queue ordered by priority. Completing a *read* task asks you what you remember (a blank-page recall) before you look at any highlights, or reminds you tomorrow.
 - **Sources:** books, articles, papers, videos, lectures and podcasts, each with status (queued, reading, done, abandoned), priority 1–5, tags, highlights and notes (ordered by page or location), tasks, and possible connections.
-- **Notes:** Markdown with `[[wikilinks]]` (links to notes that don't exist yet show in orange and connect automatically once the note is created), backlinks, typed links (*supports, contradicts, example of, prerequisite of, related*), and cards. Kinds are `note`, `highlight`, `concept`, `claim` and `summary`; concepts and claims are your atomic ideas.
+- **Recall first:** a source with highlights and no recall opens with a *Recall first* box, and its highlights stay hidden until you've written what you remember (or pressed <kbd>s</kbd> to skip). After the recall you draft the key ideas yourself as concept and claim notes. Each source records how it was processed (*recall first* or *highlights first*) so you can later compare which works better for you. Expect the first 2–3 weeks to feel harder than rereading; that's the effort doing its job.
+- **Authorship:** notes and sources record who wrote them. Notes Claude drafted are marked *by Claude* and imported quotes *imported*; your own work is unmarked. You can correct it on a note's properties.
+- **Notes:** Markdown with `[[wikilinks]]` (links to notes that don't exist yet show in orange and connect automatically once the note is created), backlinks, typed links (*supports, contradicts, example of, prerequisite of, related*), and cards. Kinds are `note`, `highlight`, `concept`, `claim`, `summary`, `recall` (a blank-page recall of a source) and `explanation` (you explaining a concept in your own words); concepts and claims are your atomic ideas.
 - **Cloze from notes:** write `{{c1::hidden text}}` (or `{{c1::answer::hint}}`) in any note and Loom keeps a cloze card per deletion in sync. Editing the note updates the card without losing its review history.
 - **Graph:** global or local (open it from a note), with edges colored by relationship type and notes clustered around their source.
 - **Stats:** retention against your target, reviews per day, a 30-day due forecast, streak, weakest topics, and mastery per source. You can also change the target retention and new cards per day here.
@@ -152,7 +155,7 @@ Create a Project (e.g. "Study"), enable the Loom connector, and paste [docs/clau
 | **Daily review** | Fetches due cards and asks one at a time without revealing the answer. It asks a follow-up when your answer is shaky, grades against the card and its rubric, maps the result to an FSRS rating (*again, hard, good, easy*) and records it with a one-line assessment. It undoes a rating if you dispute it, and finishes with a summary of your weak spots. |
 | **Exam prep on X** | Uses `get_study_context` to gather your notes, sources, weakest cards and recent failures on the topic. It asks about 60% recall and 40% synthesis questions, probes with Socratic follow-ups, records reviews for existing cards, and proposes new cards for the gaps. |
 | **Connect** | Takes a note, runs `find_connections` (unlinked semantic neighbours from *other* sources), judges each candidate, and proposes typed links with rationales plus synthesis cards. It saves only what you approve. |
-| **Process reading** | Takes pasted highlights or a Kindle import and saves them verbatim as highlight notes. It then proposes 3–7 atomic concept or claim notes with wikilinks, plus cloze, basic or open cards and cross-source synthesis cards, saves what you approve, and creates a "write a summary" task. |
+| **Process reading** | Generation-first. It imports any highlights silently, then asks what you remember *before* showing them, and saves your recall word for word. It compares the recall with the highlights and tells you what you missed and got wrong, sometimes asking you to retrieve a miss from a cue first. Then **you** draft the 3–7 concept and claim notes and Claude critiques them for accuracy, one idea per note, the missing *why* and connections (you name connections first). Cards follow, with your misses first. Say "suggest for me" if you want Claude to draft, and those notes are marked as Claude's. |
 
 Ratings use this rubric: **again** = not recalled or wrong (or only after the answer was given); **hard** = core idea with a significant gap, or needed a hint; **good** = correct and essentially complete; **easy** = instant, complete and confident. When a rating is borderline, Claude chooses the lower one.
 
@@ -164,7 +167,8 @@ Ratings use this rubric: **again** = not recalled or wrong (or only after the an
 |---|---|
 | Review | `get_due_cards(limit, topic?)`, `record_review(card_id, rating, notes?)`, `undo_review`, `get_card`, `get_review_stats` |
 | Read | `search_knowledge(query, semantic=true)`, `get_note`, `get_source`, `list_sources`, `get_related(id)`, `find_connections(id \| topic)`, `get_study_context(topic)`, `list_tags` |
-| Write | `create_source`, `update_source`, `create_note`, `update_note`, `create_card`, `update_card`, `create_link`, `import_highlights` |
+| Write | `create_source`, `update_source`, `create_note(authored_by)`, `update_note`, `create_card`, `update_card`, `create_link`, `import_highlights` |
+| Recall first | `start_recall(source_id)`, `save_recall(source_id, text)`, `skip_recall`, `get_recall_review(source_id)` (recall next to highlights, with a similarity hint per highlight) |
 | Tasks | `list_tasks(view)` (today, upcoming, all_open, done, reading_queue), `create_task`, `complete_task`, `update_task` |
 
 Prompts: `daily_review`, `exam_prep`, `connect`, `process_reading`.
@@ -172,7 +176,8 @@ Prompts: `daily_review`, `exam_prep`, `connect`, `process_reading`.
 Notes on behavior:
 - Read tools carry `readOnlyHint`; write tools are annotated as writes, so clients can ask before running them.
 - Topics can be a tag (`psychology` also matches `psychology/heuristics`), a source title, or free text. Free text is matched semantically.
-- Cards Claude creates are marked `created_by: claude`, and reviews it grades are logged with `grader: claude` and its assessment. Both are visible in the UI.
+- Claude follows a "you generate first" rule: it asks for your recall, draft or guess before offering its own, and won't show a source's highlights until you've done a recall. This is in the server instructions, so it applies even when you just say "process reading" in a chat without the prompt.
+- Cards, notes and sources Claude creates are marked `created_by: claude` (`create_note` takes `authored_by: "user"` only when saving your own words verbatim). Reviews it grades are logged with `grader: claude` and its assessment. Claude's cards and notes are labelled in the UI; review history is in the JSON export.
 
 ---
 
@@ -185,6 +190,7 @@ Everything lives in **one SQLite file**, `~/.loom/loom.db` (WAL mode, so the web
   cp deploy/com.loom.backup.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.loom.backup.plist
   ```
   Put `--dir` on a synced or external drive (iCloud Drive, Dropbox, a USB disk) for off-machine copies.
+- **Upgrades:** when a new Loom version changes the database schema, Loom first copies the database to `~/.loom/backups/pre-migration-v<old>-to-v<new>-<timestamp>.db` and prints that path. The upgrade runs in one transaction and never rewrites cards' scheduling or review history.
 - **Restore:** stop Loom, then `cp ~/.loom/backups/loom-<timestamp>.db ~/.loom/loom.db`.
 - **Export:** `loom export --json loom.json --md ~/Documents/loom-vault`. The JSON contains every table (review history included; the password hash and tokens are excluded). The vault has one folder per source, YAML frontmatter, intact `[[wikilinks]]`, typed links as lists and cards in `_cards.md`, and it opens directly in Obsidian.
 
@@ -234,3 +240,5 @@ The REST routes and MCP tools are both thin wrappers over `@loom/core`. To add a
 - **Cross-source connections:** "same source" means the same `source_id` (a standalone note is its own source). `find_connections` returns only unlinked neighbours from other sources, and a synthesis card must reference at least two distinct sources.
 - **Why React + Vite:** CodeMirror 6 (the best Markdown editor for the web, with autocomplete hooks for `[[`), Cytoscape for graphs, and TanStack Query for cache invalidation when Claude writes over MCP. The ecosystem fit outweighed the smaller bundles of Svelte or Solid. Heavy pieces (the editor and the graph) load lazily.
 - **Concepts and claims are notes with a `kind`**, so they get wikilinks, search, embeddings and the graph without separate code paths.
+- **Generation first:** Loom is shaped around how learning works (retrieval, spacing, elaboration, interleaving, and generating before checking). [docs/learning-audit.md](docs/learning-audit.md) maps each principle to the code and lays out the phased changes. Recall-first processing (Phase A) is in; interleaved review, why/how cards and *Explain it*, prerequisite awareness, spaced exam plans, confidence calibration, production stats and the recall-first experiment follow.
+- **Safe schema upgrades:** migrations are plain SQL run with foreign keys off (so rebuilding a table can't cascade-delete cards or review history), checked with `foreign_key_check` before commit, and preceded by an automatic backup.

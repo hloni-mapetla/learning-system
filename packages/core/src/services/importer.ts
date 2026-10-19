@@ -20,7 +20,7 @@ export function createImporter(ctx: Ctx, sources: Sources, notes: Notes) {
   function sourceFor(title: string, authors: string, kind: SourceKind = 'book'): { id: string; title: string; created: boolean } {
     const existing = sources.findByTitle(title);
     if (existing) return { id: existing.id, title: existing.title, created: false };
-    const s = sources.create({ title, authors, kind, status: 'reading' });
+    const s = sources.create({ title, authors, kind, status: 'reading' }, 'system');
     return { id: s.id, title: s.title, created: true };
   }
 
@@ -53,6 +53,7 @@ export function createImporter(ctx: Ctx, sources: Sources, notes: Notes) {
             c.kind === 'highlight'
               ? { kind: 'highlight', quote: c.text, body: comment, location: loc, sourceId: src.id, dedupeKey: key }
               : { kind: 'note', body: c.text, location: loc, sourceId: src.id, dedupeKey: key },
+            'system',
           );
           report.noteIds.push(note.id);
           report.created++;
@@ -95,7 +96,7 @@ export function createImporter(ctx: Ctx, sources: Sources, notes: Notes) {
         aliases: arr('aliases'),
         location: str('location'),
         dedupeKey: key,
-      });
+      }); // Markdown files are the learner's own writing
       report.created++;
       report.noteIds.push(n.id);
     });
@@ -118,7 +119,7 @@ export function createImporter(ctx: Ctx, sources: Sources, notes: Notes) {
           report.skipped++;
           continue;
         }
-        const note = notes.create({ kind: 'highlight', quote: h.quote, body: h.note ?? '', location: h.location, sourceId: src?.id, dedupeKey: key });
+        const note = notes.create({ kind: 'highlight', quote: h.quote, body: h.note ?? '', location: h.location, sourceId: src?.id, dedupeKey: key }, 'system');
         report.noteIds.push(note.id);
         report.created++;
         n++;

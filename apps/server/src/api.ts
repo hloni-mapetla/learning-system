@@ -50,6 +50,15 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
     res.status(204).end();
   });
 
+  // ---- recall-first processing ----
+  r.get('/sources/:id/recall', (req, res) => res.json(loom.processing.status(req.params.id)));
+  r.post('/sources/:id/recall', (req, res) => {
+    const { text } = z.object({ text: z.string().min(1) }).parse(req.body);
+    res.status(201).json(loom.processing.saveRecall(req.params.id, text));
+  });
+  r.post('/sources/:id/recall/skip', (req, res) => res.json(loom.processing.skipRecall(req.params.id)));
+  r.get('/sources/:id/recall/compare', async (req, res) => res.json(await loom.processing.compare(req.params.id)));
+
   // ---- notes ----
   r.get('/notes', (req, res) => {
     res.json(

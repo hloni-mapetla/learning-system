@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Db } from './db.ts';
+import { Db, type DbOptions } from './db.ts';
 import type { Ctx } from './services/context.ts';
 import { createTags } from './services/tags.ts';
 import { createLinks } from './services/links.ts';
@@ -19,6 +19,7 @@ import { createGraph } from './services/graph.ts';
 import { createStats } from './services/stats.ts';
 import { createImporter } from './services/importer.ts';
 import { createExporter } from './services/exporter.ts';
+import { createProcessing } from './services/processing.ts';
 import type { NoteDetail, SourceDetail } from './types.ts';
 
 export * from './types.ts';
@@ -37,12 +38,15 @@ export type { Stats, MasteryRow } from './services/stats.ts';
 export type { ImportReport } from './services/importer.ts';
 export { parseKindleClippings } from './importers/kindle.ts';
 export { REVIEW_TASK_ID, type CompleteResult } from './services/tasks.ts';
+export type { RecallStatus, RecallComparison } from './services/processing.ts';
 
 export interface LoomOptions {
   /** Path to the SQLite file. Defaults to $LOOM_DB or ~/.loom/loom.db. */
   dbPath?: string;
   /** Embedder for semantic search; `null` disables it. Defaults to local bge-small. */
   embedder?: Embedder | null;
+  /** Migration options (tests). */
+  db?: DbOptions;
 }
 
 export function defaultDataDir(): string {
@@ -53,7 +57,7 @@ export function defaultDbPath(): string {
 }
 
 export function createLoom(opts: LoomOptions = {}) {
-  const db = new Db(opts.dbPath ?? defaultDbPath());
+  const db = new Db(opts.dbPath ?? defaultDbPath(), opts.db);
   const embedder =
     opts.embedder === undefined ? transformersEmbedder({ cacheDir: join(defaultDataDir(), 'models') }) : opts.embedder;
   const ctx: Ctx = { db, embedder, onNoteSaved: [], onIndexNeeded: [] };
@@ -75,6 +79,7 @@ export function createLoom(opts: LoomOptions = {}) {
   const stats = createStats(ctx, cards, review);
   const importer = createImporter(ctx, sources, notes);
   const exporter = createExporter(ctx);
+  const processing = createProcessing(ctx, sources, notes, index);
   cards.syncMissingClozes();
 
   const embeddings = {
@@ -98,6 +103,7 @@ export function createLoom(opts: LoomOptions = {}) {
       ...links.forItem('source', id),
       cardCount: cards.countForItem('source', id),
       tasks: tasks.list({ sourceId: id, view: 'all_open' }),
+      recallState: processing.stateOf(id),
     };
   }
 
@@ -122,6 +128,7 @@ export function createLoom(opts: LoomOptions = {}) {
     stats,
     importer,
     exporter,
+    processing,
     embeddings,
     noteDetail,
     sourceDetail,

@@ -1,6 +1,8 @@
 // Input schemas shared by the REST API and MCP tools. Patch schemas carry no defaults on purpose.
 import { z } from 'zod';
-import { CARD_TYPES, NOTE_KINDS, RATINGS, SOURCE_KINDS, SOURCE_STATUSES, TASK_KINDS, TYPED_LINK_RELS } from './types.ts';
+import { CARD_TYPES, NOTE_KINDS, RATINGS, SOURCE_KINDS, SOURCE_METHODS, SOURCE_STATUSES, TASK_KINDS, TYPED_LINK_RELS } from './types.ts';
+
+const actor = z.enum(['user', 'claude', 'system']);
 
 const priority = z.number().int().min(1).max(5);
 const tags = z.array(z.string().min(1));
@@ -16,6 +18,7 @@ export const SourceCreate = z.object({
   description: z.string().optional(),
   startedAt: z.string().nullish(),
   finishedAt: z.string().nullish(),
+  method: z.enum(SOURCE_METHODS).nullish(),
   tags: tags.optional(),
 });
 export const SourcePatch = SourceCreate.partial();
@@ -33,7 +36,8 @@ export const NoteCreate = z.object({
   tags: tags.optional(),
   dedupeKey: z.string().nullish(),
 });
-export const NotePatch = NoteCreate.omit({ dedupeKey: true }).partial();
+/** createdBy is patchable so the learner can correct authorship (e.g. after the v3 backfill). */
+export const NotePatch = NoteCreate.omit({ dedupeKey: true }).partial().extend({ createdBy: actor.optional() });
 export type NoteCreate = z.infer<typeof NoteCreate>;
 export type NotePatch = z.infer<typeof NotePatch>;
 

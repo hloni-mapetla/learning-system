@@ -1,9 +1,16 @@
 import { DatabaseSync, type StatementSync, type SQLInputValue } from 'node:sqlite';
-import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 type Params = Record<string, unknown> | unknown[] | undefined;
 export type Row = Record<string, any>;
+
+export interface DbOptions {
+  /** Stop migrating at this schema version (tests build old-schema fixtures with it). */
+  migrateTo?: number;
+  /** Where pre-migration backups go; defaults to <db dir>/backups. null disables them. */
+  backupDir?: string | null;
+}
 
 /** Thin wrapper over node:sqlite: statement cache, param normalisation, nested transactions. */
 export class Db {
@@ -11,13 +18,19 @@ export class Db {
   readonly path: string;
   #cache = new Map<string, StatementSync>();
   #txDepth = 0;
+  /** Path of the backup taken before this connection upgraded the schema, if it did. */
+  migrationBackup: string | null = null;
 
-  constructor(path: string) {
+  constructor(path: string, opts: DbOptions = {}) {
     this.path = path;
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.raw = new DatabaseSync(path, { enableForeignKeyConstraints: true, timeout: 5000 });
     this.raw.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;');
-    migrate(this);
+    migrate(this, opts);
+  }
+
+  schemaVersion(): number {
+    return Number((this.raw.prepare('PRAGMA user_version').get() as Row).user_version);
   }
 
   #stmt(sql: string): StatementSync {
@@ -104,15 +117,41 @@ function bind(s: StatementSync, method: 'all' | 'get' | 'run', params: Params): 
 
 const MIGRATIONS_DIR = join(import.meta.dirname, 'migrations');
 
-function migrate(db: Db): void {
-  const current = Number((db.raw.prepare('PRAGMA user_version').get() as Row).user_version);
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => /^\d+_.*\.sql$/.test(f)).sort();
-  for (const f of files) {
-    const version = parseInt(f, 10);
-    if (version <= current) continue;
-    db.tx(() => {
-      db.exec(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'));
-      db.exec(`PRAGMA user_version = ${version}`);
-    });
+/**
+ * Apply pending migrations. Each file runs in its own transaction with foreign keys OFF, so table rebuilds
+ * (create new → copy → drop old → rename) can't cascade-delete cards or review history. Foreign keys are
+ * re-checked before commit, and an existing database is snapshotted first.
+ */
+function migrate(db: Db, opts: DbOptions): void {
+  const current = db.schemaVersion();
+  const pending = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => /^\d+_.*\.sql$/.test(f))
+    .sort()
+    .map((f) => ({ file: f, version: parseInt(f, 10) }))
+    .filter((m) => m.version > current && (opts.migrateTo === undefined || m.version <= opts.migrateTo));
+  if (!pending.length) return;
+
+  if (current > 0 && db.path !== ':memory:' && opts.backupDir !== null) {
+    const dir = opts.backupDir ?? join(dirname(db.path), 'backups');
+    mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    let file = join(dir, `pre-migration-v${current}-to-v${pending.at(-1)!.version}-${stamp}.db`);
+    for (let i = 2; existsSync(file); i++) file = file.replace(/(-\d+)?\.db$/, `-${i}.db`);
+    db.raw.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+    db.migrationBackup = file;
+  }
+
+  db.raw.exec('PRAGMA foreign_keys = OFF'); // must be outside a transaction to take effect
+  try {
+    for (const m of pending) {
+      db.tx(() => {
+        db.exec(readFileSync(join(MIGRATIONS_DIR, m.file), 'utf8'));
+        const broken = db.all('PRAGMA foreign_key_check');
+        if (broken.length) throw new Error(`Migration ${m.file} left ${broken.length} broken foreign keys, e.g. ${JSON.stringify(broken[0])}`);
+        db.exec(`PRAGMA user_version = ${m.version}`);
+      });
+    }
+  } finally {
+    db.raw.exec('PRAGMA foreign_keys = ON');
   }
 }

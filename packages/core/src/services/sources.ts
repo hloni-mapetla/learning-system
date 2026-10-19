@@ -1,5 +1,5 @@
 import type { Ctx } from './context.ts';
-import type { Source, SourceStatus } from '../types.ts';
+import type { Actor, Source, SourceStatus } from '../types.ts';
 import type { SourceCreate, SourcePatch } from '../schemas.ts';
 import type { Tags } from './tags.ts';
 import type { Links } from './links.ts';
@@ -19,6 +19,8 @@ function toSource(r: any, tags: string[]): Source {
     description: r.description,
     startedAt: r.started_at,
     finishedAt: r.finished_at,
+    method: r.method ?? null,
+    createdBy: r.created_by ?? 'user',
     tags,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -43,16 +45,16 @@ export function createSources(ctx: Ctx, tags: Tags, links: Links) {
     return toSource(r, tags.get('source', id));
   }
 
-  function create(input: SourceCreate): Source {
+  function create(input: SourceCreate, createdBy: Actor = 'user'): Source {
     const id = newId();
     const now = nowIso();
     const status = input.status ?? 'queued';
     db.tx(() => {
       db.run(
         `INSERT INTO sources (id, kind, title, authors, url, published, status, priority, description,
-           started_at, finished_at, created_at, updated_at)
+           started_at, finished_at, method, created_by, created_at, updated_at)
          VALUES (:id, :kind, :title, :authors, :url, :published, :status, :priority, :description,
-           :started_at, :finished_at, :now, :now)`,
+           :started_at, :finished_at, :method, :created_by, :now, :now)`,
         {
           id,
           kind: input.kind ?? 'book',
@@ -65,6 +67,8 @@ export function createSources(ctx: Ctx, tags: Tags, links: Links) {
           description: input.description ?? '',
           started_at: input.startedAt ?? (status === 'reading' || status === 'done' ? localDate() : null),
           finished_at: input.finishedAt ?? (status === 'done' ? localDate() : null),
+          method: input.method ?? null,
+          created_by: createdBy,
           now,
         },
       );
@@ -88,7 +92,7 @@ export function createSources(ctx: Ctx, tags: Tags, links: Links) {
       db.run(
         `UPDATE sources SET kind = :kind, title = :title, authors = :authors, url = :url, published = :published,
            status = :status, priority = :priority, description = :description, started_at = :started_at,
-           finished_at = :finished_at, updated_at = :now WHERE id = :id`,
+           finished_at = :finished_at, method = :method, updated_at = :now WHERE id = :id`,
         {
           id,
           kind: next.kind,
@@ -101,6 +105,7 @@ export function createSources(ctx: Ctx, tags: Tags, links: Links) {
           description: next.description,
           started_at: next.startedAt,
           finished_at: next.finishedAt,
+          method: patch.method !== undefined ? patch.method : cur.method,
           now: nowIso(),
         },
       );

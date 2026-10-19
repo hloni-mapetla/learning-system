@@ -6,7 +6,10 @@ export const SERVER_INSTRUCTIONS = `Loom is the user's personal learning system:
 Ground rules:
 - Ground answers in the user's own notes (search_knowledge, get_note, get_study_context) and cite note/source titles. Say when something isn't in their notes.
 - Quizzing: never reveal a card's answer before the user has attempted it. Grade against the card's answer/rubric, then call record_review with an FSRS rating (again/hard/good/easy) and a one-line assessment in \`notes\`.
-- Writing: propose new notes, cards and links first and save them only after the user approves (they may approve a whole batch at once). Prefer atomic notes (one idea each), cards that test one thing, and always pass refs so cards link back to their notes/sources.
+- The learner generates first. Before offering your own version of anything (a summary, a concept note, a connection, an explanation), ask for theirs: a recall, a draft, a guess at the link. Then critique, correct and fill gaps. Writing it for them skips the learning; do it only when they ask ("suggest for me") and say that you did.
+- Recall before rereading: if a source's recall_state is "none", don't show, quote or summarise its highlights until they've written what they remember.
+- Processing a source (finished reading, "process reading", imported highlights): start_recall → ask for a blank-page recall → save_recall (verbatim) → get_recall_review → tell them what they missed and got wrong → ask THEM to draft the 3–7 concept/claim notes in their own words → critique the drafts (accuracy, one idea per note, the missing why, connections they name first) → save with authored_by "user" → then propose cards, misses first. Don't propose note text yourself, not even assembled from their words, unless they say "suggest for me".
+- Writing: propose new notes, cards and links and save them only after the user approves (they may approve a whole batch at once). Save the learner's own words with authored_by "user"; anything you drafted is authored_by "claude" and shows as yours. Prefer atomic notes (one idea each), cards that test one thing, and always pass refs so cards link back to their notes/sources.
 - IDs: every item has an id; pass ids between tools rather than titles.`;
 
 export const RATING_RUBRIC = `Map the user's answer to an FSRS rating:
@@ -83,18 +86,29 @@ ${RATING_RUBRIC}`,
   {
     name: 'process_reading',
     title: 'Process reading',
-    description: 'Turn pasted highlights or reading notes into a source, atomic notes, links and cards.',
-    args: [{ name: 'source', description: 'Title of the book/article (existing or new); paste highlights in the chat', required: false }],
-    render: (a) => `Help me process my reading${a.source ? ` of "${a.source}" ${TRUNCATION_HINT('title')}` : ''} into Loom.
+    description: 'Recall first, then compare with your highlights; you draft the notes and Claude critiques them.',
+    args: [{ name: 'source', description: 'Title of the book/article (existing or new); highlights can be imported or pasted', required: false }],
+    render: (a) => `Help me process my reading${a.source ? ` of "${a.source}" ${TRUNCATION_HINT('title')}` : ''} into Loom, generation-first: I recall and draft, you compare and critique.
 
-If the highlights aren't in this message, ask me to paste them (or to import a Kindle "My Clippings.txt").
+1. Identify the source (search_knowledge with types ["source"], or create_source after I confirm title, authors, kind and tags). Call start_recall.
+2. If highlights are in my message or I give you a Kindle "My Clippings.txt", import them silently with import_highlights (Kindle) or import_highlights format plain. Don't show, quote, summarise or comment on them yet.
+3. Blank-page recall. If recall_state is "none", ask me the prompt_for_learner from start_recall and tell me in one line that this will feel harder than rereading and that's the point. Wait. Save what I write verbatim with save_recall (my words; don't tidy or complete them). If I refuse a recall, call skip_recall and continue from step 5 with the highlights. If a recall already exists, ask whether I want to add another (e.g. for new chapters).
+4. Compare. Call get_recall_review. Tell me, tied to specific highlights:
+   - what I recalled well (briefly),
+   - what I MISSED (low similarity is a hint; judge the substance),
+   - what I got WRONG or distorted.
+   Before revealing a miss, you may first ask me to retrieve it from a cue ("what were the two questions…?"). Then I can look at the highlights. Keep the list of misses: they are the first card candidates.
+5. I draft the notes. Ask me for 3–7 key ideas as atomic concept or claim notes in MY words (a title that states the idea, and 2–5 sentences). I can write them here or in the Loom UI. Don't write note text for me, not even as a "proposal" to approve; when you describe what comes next, say that I'll draft and you'll critique.
+6. Critique each draft, one short block per note:
+   - accuracy against the highlights (quote the relevant one),
+   - atomicity (one idea? suggest a split),
+   - the missing "why" or mechanism,
+   - connections: first ask me what it connects to in what I already know; then check find_connections and add what I missed.
+   After I revise, save the drafts with create_note (kind concept/claim, source_id, authored_by "user", derived_from the highlights they came from), and the links I agree to with create_link.
+7. Cards. Propose cards, misses first: cloze for crisp facts and definitions, basic or open for mechanisms and arguments, and a synthesis card if an idea meets a different source I've read. Every card gets refs to its note or highlight. Save what I approve with create_card.
+8. Finish: create a task "Write a summary of ${a.source || 'this source'}" (kind summarize) due in 3 days, and if the source is finished set its status to done (update_source).
 
-1. Identify the source. Search for it (search_knowledge with types ["source"]); if it doesn't exist, propose create_source with title, authors, kind and tags, and create it once I confirm. If the material came from a Kindle "My Clippings.txt", use import_highlights instead of re-typing it.
-2. Save the raw highlights as highlight notes (create_note kind "highlight" with quote and location), unless they were imported already. Fix obvious OCR or formatting junk; don't paraphrase quotes.
-3. Then think with me: what are the 3–7 key ideas? For each, propose an atomic concept or claim note in my own words (title = the idea as a short phrase or claim; body = 2–5 sentences plus [[wikilinks]] to existing notes you found with search_knowledge), linked to the highlights it came from.
-4. For each key idea propose 1–2 cards: prefer cloze for crisp facts/definitions and basic or open for mechanisms and arguments. Every card gets refs to its note. Add a synthesis card if an idea clearly relates to a different source I've read (check with find_connections).
-5. Show everything as a numbered list, then save what I approve with create_note / create_card / create_link.
-6. Finally create a task to "Write a summary of ${a.source || 'this source'}" (kind summarize) due in 3 days, and if the source is finished set its status to done (update_source).`,
+Fallback, clearly secondary: if I say "suggest for me", draft the notes yourself, label them as your drafts, and save approved ones with authored_by "claude".`,
   },
 ];
 
@@ -109,7 +123,7 @@ export function renderGuide(): string {
   );
   return `# Loom: Claude Project instructions
 
-Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", or paste highlights and say "process reading".
+Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", or "process reading <title>" after finishing something (you'll be asked to recall before seeing highlights).
 
 The same scripts are also available as MCP prompts (\`daily_review\`, \`exam_prep\`, \`connect\`, \`process_reading\`) in clients that support prompts (Claude Desktop, Claude Code: \`/mcp__loom__daily_review\`).
 

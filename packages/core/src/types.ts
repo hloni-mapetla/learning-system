@@ -2,13 +2,25 @@
 
 export const SOURCE_KINDS = ['book', 'article', 'paper', 'video', 'lecture', 'podcast', 'other'] as const;
 export const SOURCE_STATUSES = ['queued', 'reading', 'done', 'abandoned'] as const;
-export const NOTE_KINDS = ['note', 'highlight', 'concept', 'claim', 'summary'] as const;
+export const NOTE_KINDS = ['note', 'highlight', 'concept', 'claim', 'summary', 'recall', 'explanation'] as const;
+/** Kinds that count as the learner's own production when they wrote them. */
+export const PRODUCTION_KINDS = ['recall', 'concept', 'claim', 'explanation', 'summary'] as const;
+export const SOURCE_METHODS = ['recall_first', 'highlights_first'] as const;
 export const LINK_RELS = ['wikilink', 'supports', 'contradicts', 'example_of', 'prerequisite_of', 'related'] as const;
 export const TYPED_LINK_RELS = ['supports', 'contradicts', 'example_of', 'prerequisite_of', 'related'] as const;
 export const CARD_TYPES = ['basic', 'cloze', 'open', 'synthesis'] as const;
 export const TASK_KINDS = ['todo', 'read', 'process_highlights', 'summarize', 'write'] as const;
 export const RATINGS = ['again', 'hard', 'good', 'easy'] as const;
 export const CARD_STATES = ['new', 'learning', 'review', 'relearning'] as const;
+
+// Wording shared by the UI and the MCP tools, so the learner sees the same prompt everywhere.
+export const RECALL_PROMPT =
+  "Without looking at the book or your highlights: what do you remember? The main argument, ideas, examples, " +
+  "anything that surprised you or that you disagreed with. Fragments are fine. Write it the way you'd tell a friend.";
+
+export const FEELS_HARDER_NOTE =
+  'The first 2–3 weeks of recall-first will probably feel harder and less productive than rereading highlights. ' +
+  'That feeling is the effort that makes it stick: fluent rereading feels better and works worse.';
 
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 export type SourceStatus = (typeof SOURCE_STATUSES)[number];
@@ -18,6 +30,7 @@ export type CardType = (typeof CARD_TYPES)[number];
 export type TaskKind = (typeof TASK_KINDS)[number];
 export type RatingName = (typeof RATINGS)[number];
 export type CardStateName = (typeof CARD_STATES)[number];
+export type SourceMethod = (typeof SOURCE_METHODS)[number];
 export type ItemType = 'note' | 'source';
 export type Actor = 'user' | 'claude' | 'system';
 
@@ -33,6 +46,9 @@ export interface Source {
   description: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** How it was processed: blank-page recall before highlights, or highlights first (null = not yet). */
+  method: SourceMethod | null;
+  createdBy: Actor;
   tags: string[];
   createdAt: string;
   updatedAt: string;
@@ -49,6 +65,8 @@ export interface Note {
   sourceTitle: string | null;
   aliases: string[];
   tags: string[];
+  /** Who wrote it: the learner, Claude, or an importer (system). */
+  createdBy: Actor;
   createdAt: string;
   updatedAt: string;
 }
@@ -85,7 +103,11 @@ export interface SourceDetail extends Source {
   backlinks: Link[];
   cardCount: number;
   tasks: Task[];
+  /** none = no recall yet and not skipped; highlights stay hidden in the UI until done or skipped. */
+  recallState: RecallState;
 }
+
+export type RecallState = 'none' | 'done' | 'skipped';
 
 export interface CardView {
   id: string;

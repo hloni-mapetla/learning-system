@@ -27,8 +27,8 @@ export const REVIEW_TASK_ID = 'review-today';
 
 export interface CompleteResult {
   task: Task;
-  /** What the user (or Claude) should do next, e.g. capture highlights after finishing a reading task. */
-  followUp: { action: 'capture_highlights'; sourceId: string | null; sourceTitle: string | null; message: string } | null;
+  /** What to do next. Finishing a reading task asks for a blank-page recall before any highlights are looked at. */
+  followUp: { action: 'blank_page_recall'; sourceId: string | null; sourceTitle: string | null; message: string } | null;
 }
 
 export interface TaskListOpts {
@@ -84,18 +84,16 @@ export function createTasks(ctx: Ctx, review: Review) {
     return get(id);
   }
 
-  /** Mark done. Finishing a reading task prompts capturing notes and moves the source along. */
+  /** Mark done. Finishing a reading task prompts a blank-page recall and moves the source along. */
   function complete(id: string): CompleteResult {
     const task = update(id, { status: 'done' });
     let followUp: CompleteResult['followUp'] = null;
     if (task.kind === 'read') {
       followUp = {
-        action: 'capture_highlights',
+        action: 'blank_page_recall',
         sourceId: task.sourceId,
         sourceTitle: task.sourceTitle,
-        message: `You finished "${task.title}". Capture your highlights and key ideas while they're fresh${
-          task.sourceTitle ? ` (paste them, import Kindle clippings, or add them on the ${task.sourceTitle} page)` : ''
-        }.`,
+        message: `You finished "${task.title}". Before you look at anything: what do you remember? Write it down from memory first; highlights come after.`,
       };
       if (task.sourceId) {
         const s = db.get<{ status: string }>('SELECT status FROM sources WHERE id = ?', [task.sourceId]);

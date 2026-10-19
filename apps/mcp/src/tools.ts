@@ -188,6 +188,7 @@ export function registerTools(server: McpServer, loom: Loom) {
         id: n.id,
         kind: n.kind,
         title: n.title,
+        created_by: n.createdBy,
         source: n.sourceId ? { id: n.sourceId, title: n.sourceTitle } : null,
         location: n.location,
         quote: n.quote,
@@ -206,7 +207,10 @@ export function registerTools(server: McpServer, loom: Loom) {
     'get_source',
     {
       title: 'Get source',
-      description: 'A source (book/article/paper/video/lecture) with metadata, its highlights and notes, links and card count.',
+      description:
+        'A source (book/article/paper/video/lecture) with metadata, its highlights and notes, links and card count. ' +
+        'If recall_state is "none", the learner has not done a blank-page recall yet: do NOT show, quote or summarise the highlights; ' +
+        'ask for the recall first (start_recall / save_recall).',
       inputSchema: {
         id: z.string(),
         full_text: z.boolean().default(false).describe('Include full note bodies (otherwise truncated)'),
@@ -228,10 +232,13 @@ export function registerTools(server: McpServer, loom: Loom) {
         finished: s.finishedAt,
         description: s.description || undefined,
         tags: s.tags,
+        method: s.method,
+        recall_state: s.recallState,
         card_count: s.cardCount,
         notes: s.notes.map((n) => ({
           id: n.id,
           kind: n.kind,
+          created_by: n.createdBy,
           title: n.title,
           location: n.location ?? undefined,
           quote: n.quote ?? undefined,
@@ -377,9 +384,9 @@ export function registerTools(server: McpServer, loom: Loom) {
     async (a) => {
       const existing = loom.sources.findByTitle(a.title);
       if (existing) return json({ id: existing.id, title: existing.title, note: 'A source with this title already exists; returned it.' });
-      const s = loom.sources.create(a);
+      const s = loom.sources.create(a, 'claude');
       kick();
-      return json({ id: s.id, title: s.title, status: s.status });
+      return json({ id: s.id, title: s.title, status: s.status, recall_state: loom.processing.stateOf(s.id) });
     },
   );
 
@@ -413,8 +420,10 @@ export function registerTools(server: McpServer, loom: Loom) {
       title: 'Create note',
       description:
         'Create a note. kinds: note (general), highlight (a quote from a source; set quote + location), concept (an atomic idea), ' +
-        'claim (an arguable proposition), summary. Body is Markdown; [[Title]] creates a wikilink; {{c1::text}} creates cloze cards automatically. ' +
-        'Only call after the user has approved the content.',
+        'claim (an arguable proposition), summary, explanation (the learner explaining a concept in their own words). ' +
+        'Body is Markdown; [[Title]] creates a wikilink; {{c1::text}} creates cloze cards automatically. ' +
+        'authored_by: "user" ONLY when saving the learner\'s own words (verbatim; fixing typos is fine), "claude" for anything you drafted ' +
+        '(it is shown as written by Claude). Use save_recall for blank-page recalls. Only call after the user has approved the content.',
       inputSchema: {
         title: z.string().optional().describe('Defaults to the first line/quote'),
         body: z.string().default(''),
@@ -425,10 +434,12 @@ export function registerTools(server: McpServer, loom: Loom) {
         tags: z.array(z.string()).optional(),
         aliases: z.array(z.string()).optional(),
         derived_from: z.array(z.string()).optional().describe('Note ids this note was extracted from; links are created automatically'),
+        authored_by: z.enum(['user', 'claude']).default('claude').describe('Who wrote the text: user = the learner\'s own words'),
       },
       annotations: WRITE,
     },
     async (a) => {
+      if (a.kind === 'recall') throw new Error('Use save_recall for blank-page recalls (it also records the processing method).');
       const n = loom.notes.create({
         title: a.title,
         body: a.body,
@@ -438,7 +449,7 @@ export function registerTools(server: McpServer, loom: Loom) {
         location: a.location,
         tags: a.tags,
         aliases: a.aliases,
-      });
+      }, a.authored_by);
       for (const from of a.derived_from ?? []) {
         loom.links.create({ from: { type: 'note', id: n.id }, to: { type: 'note', id: from }, rel: 'related', rationale: 'extracted from' }, 'claude');
       }
@@ -448,6 +459,7 @@ export function registerTools(server: McpServer, loom: Loom) {
         id: n.id,
         title: n.title,
         kind: n.kind,
+        authored_by: n.createdBy,
         source: n.sourceTitle,
         wikilinks: d.outgoing.filter((l) => l.rel === 'wikilink').map((l) => ({ title: l.targetTitle, resolved: !!l.to })),
         cloze_cards_created: d.cards.length,
@@ -552,6 +564,98 @@ export function registerTools(server: McpServer, loom: Loom) {
     },
   );
 
+  // ================= processing: recall first =================
+
+  server.registerTool(
+    'start_recall',
+    {
+      title: 'Start recall',
+      description:
+        'Begin processing a source the generation-first way. Returns whether a blank-page recall exists (recall_state), how many ' +
+        'highlights there are (count only, no text) and the recall prompt to give the learner. If recall_state is "none", ask for the ' +
+        'recall before showing anything from the source.',
+      inputSchema: { source_id: z.string() },
+      annotations: READ,
+    },
+    async ({ source_id }) => {
+      const s = loom.processing.status(source_id);
+      return json({
+        source: s.source,
+        recall_state: s.state,
+        highlight_count: s.highlightCount,
+        recalls: s.recalls,
+        prompt_for_learner: s.prompt,
+        expectation: s.note,
+      });
+    },
+  );
+
+  server.registerTool(
+    'save_recall',
+    {
+      title: 'Save recall',
+      description:
+        "Save the learner's blank-page recall of a source VERBATIM (their words, not yours; don't tidy or complete it). " +
+        'Stored as a recall note by the user. The first recall on an unprocessed source marks it recall_first. Then call get_recall_review.',
+      inputSchema: { source_id: z.string(), text: z.string().min(1).describe("The learner's recall, exactly as they wrote it") },
+      annotations: WRITE,
+    },
+    async ({ source_id, text }) => {
+      const n = loom.processing.saveRecall(source_id, text);
+      kick();
+      const s = loom.sources.get(source_id);
+      return json({ recall_note_id: n.id, source: s.title, method: s.method, next: 'Call get_recall_review to compare against the highlights.' });
+    },
+  );
+
+  server.registerTool(
+    'skip_recall',
+    {
+      title: 'Skip recall',
+      description:
+        'Only when the learner explicitly declines a recall: marks the source as processed highlights-first (kept separate in their ' +
+        'recall-first vs highlights-first experiment) and unhides its highlights in the UI.',
+      inputSchema: { source_id: z.string() },
+      annotations: WRITE,
+    },
+    async ({ source_id }) => {
+      const s = loom.processing.skipRecall(source_id);
+      return json({ source: s.source, recall_state: s.state });
+    },
+  );
+
+  server.registerTool(
+    'get_recall_review',
+    {
+      title: 'Get recall review',
+      description:
+        "The learner's recall(s) for a source next to its highlights, for you to report what they MISSED and what they got WRONG " +
+        '(each tied to a highlight). Each highlight has a similarity hint to the nearest recalled fragment (low = likely missed; ' +
+        'judge for yourself). Misses are the best card candidates. Also returns the learner\'s own notes on the source to critique. ' +
+        'Next, ask the learner to draft the concept/claim notes in their own words; critique their drafts rather than writing notes for them.',
+      inputSchema: { source_id: z.string() },
+      annotations: READ,
+    },
+    async ({ source_id }) => {
+      const c = await loom.processing.compare(source_id);
+      return json({
+        source: c.source,
+        recalls: c.recalls,
+        highlights: c.highlights.map((h) => ({
+          id: h.id,
+          quote: h.quote,
+          comment: h.comment ?? undefined,
+          location: h.location ?? undefined,
+          similarity: h.similarity,
+          nearest_recalled: h.nearestFragment ?? undefined,
+        })),
+        own_notes: c.ownNotes,
+        notes_by_claude: c.claudeNotes,
+        misses_are_card_candidates: true,
+      });
+    },
+  );
+
   // ================= tasks =================
 
   const taskOut = (t: ReturnType<typeof loom.tasks.get>) => ({
@@ -612,7 +716,8 @@ export function registerTools(server: McpServer, loom: Loom) {
     {
       title: 'Complete task',
       description:
-        'Mark a task done. For reading tasks the result includes a follow_up: prompt the user to capture highlights/notes for that source now.',
+        'Mark a task done. For reading tasks the result includes a follow_up (blank_page_recall): ask the learner what they remember ' +
+        'BEFORE looking at highlights, and save it with save_recall.',
       inputSchema: { task_id: z.string() },
       annotations: WRITE,
     },
@@ -652,7 +757,7 @@ export function registerTools(server: McpServer, loom: Loom) {
       description:
         'Bulk-import highlights. format=kindle for the contents of a Kindle "My Clippings.txt" (creates a source per book; re-imports are skipped); ' +
         'format=plain for blank-line-separated quotes, optionally ending in "(p. 12)" / "loc 340", with "Note: ..." lines attached to the previous quote. ' +
-        'Returns created note ids so you can then propose concepts and cards from them.',
+        'Returns counts and note ids. If the source has no recall yet, do not show or discuss the highlight text: ask for a blank-page recall first.',
       inputSchema: {
         text: z.string().min(1),
         format: z.enum(['auto', 'kindle', 'plain']).default('auto'),
@@ -669,7 +774,11 @@ export function registerTools(server: McpServer, loom: Loom) {
         ? loom.importer.kindle(a.text, { onlyBooks: a.books })
         : loom.importer.pasted(a.text, { sourceId: a.source_id, sourceTitle: a.source_title, authors: a.authors });
       kick();
-      return json({ format: kindle ? 'kindle' : 'plain', ...r });
+      return json({
+        format: kindle ? 'kindle' : 'plain',
+        ...r,
+        sources: r.sources.map((s) => ({ ...s, recall_state: loom.processing.stateOf(s.id) })),
+      });
     },
   );
 

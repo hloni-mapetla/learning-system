@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import { SOURCE_KINDS, SOURCE_STATUSES, type Note, type SourceDetail } from '@loom/core/types';
+import { AuthorBadge, RecallBox } from '../components/RecallBox';
 import { api, useAction, useApi } from '../lib/api';
 import { shortDate } from '../lib/format';
 import { useHotkeys } from '../lib/hotkeys';
@@ -19,12 +20,37 @@ export function SourceDetailPage() {
   const remove = useAction(() => api.del(`/sources/${id}`));
   const [capturing, setCapturing] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
+  const [recalling, setRecalling] = useState(false);
+  const [openRecall, setOpenRecall] = useState<string | null>(null);
   const complete = useAction((tid: string) => api.post(`/tasks/${tid}/complete`));
-  useHotkeys({ a: () => setCapturing(true) }, []);
+  const skip = useAction(() => api.post(`/sources/${id}/recall/skip`));
+  const draft = async (kind: 'concept' | 'claim') => {
+    const n = await api.post<Note>('/notes', { title: kind === 'concept' ? 'New concept' : 'New claim', kind, sourceId: id });
+    navigate({ to: '/notes/$id', params: { id: n.id }, search: { edit: true, focusTitle: true } as any });
+  };
+
+  const highlights = s?.notes.filter((n) => n.kind === 'highlight') ?? [];
+  const recalls = s?.notes.filter((n) => n.kind === 'recall') ?? [];
+  const others = s?.notes.filter((n) => n.kind !== 'highlight' && n.kind !== 'recall') ?? [];
+  // Highlights stay hidden until a blank-page recall is written (or explicitly skipped).
+  const gated = s?.recallState === 'none' && highlights.length > 0;
+  const recallDue = s?.recallState === 'none' && (highlights.length > 0 || s.status === 'done');
+  const skipRecall = () => {
+    if (confirm('Show highlights without recalling first? This source will count as "highlights first" in your recall experiment.')) skip.mutate(undefined);
+  };
+
+  useHotkeys(
+    {
+      a: () => setCapturing(true),
+      r: () => (recallDue ? document.querySelector<HTMLTextAreaElement>('#recall-box textarea')?.focus() : setRecalling(true)),
+      s: () => gated && skipRecall(),
+      n: () => draft('concept'),
+      N: () => draft('claim'),
+    },
+    [recallDue, gated],
+  );
 
   if (!s) return null;
-  const highlights = s.notes.filter((n) => n.kind === 'highlight');
-  const others = s.notes.filter((n) => n.kind !== 'highlight');
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_280px]">
@@ -57,9 +83,49 @@ export function SourceDetailPage() {
           onBlur={(e) => e.target.value !== s.description && patch.mutate({ description: e.target.value })}
         />
 
+        <div className="mt-8">
+          {(recallDue || recalling) && (
+            <RecallBox
+              sourceId={s.id}
+              autoFocus={recalling}
+              onSaved={() => setRecalling(false)}
+              onCancel={recallDue ? undefined : () => setRecalling(false)}
+            />
+          )}
+          {recalls.length > 0 && (
+            <Section
+              title={`Your recalls (${recalls.length})`}
+              actions={!recalling && <button className="text-xs text-accent hover:underline" onClick={() => setRecalling(true)}>+ recall <span className="font-mono text-faint">r</span></button>}
+            >
+              <ul className="space-y-2">
+                {recalls.map((n) => (
+                  <li key={n.id} className="rounded-lg border border-line bg-panel px-4 py-2">
+                    <button className="flex w-full items-center gap-2 text-left text-sm" onClick={() => setOpenRecall(openRecall === n.id ? null : n.id)}>
+                      <Badge tone="accent">recall</Badge>
+                      <span className="text-muted">{shortDate(n.createdAt)} · {n.body.length} chars</span>
+                      <Link to="/notes/$id" params={{ id: n.id }} className="ml-auto text-xs text-accent" onClick={(e) => e.stopPropagation()}>open</Link>
+                    </button>
+                    {openRecall === n.id && <div className="mt-2 text-sm whitespace-pre-wrap">{n.body}</div>}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-3 rounded-lg bg-accent-soft px-4 py-3 text-sm">
+                <div className="font-medium">Next: draft your own notes</div>
+                <div className="mt-1 text-muted">
+                  Compare your recall with the highlights below, then write the key ideas in your own words, one per note:{' '}
+                  <button className="text-accent hover:underline" onClick={() => draft('concept')}>concept <span className="font-mono text-faint">n</span></button>{' · '}
+                  <button className="text-accent hover:underline" onClick={() => draft('claim')}>claim <span className="font-mono text-faint">N</span></button>.
+                  {' '}For a critique of what you missed and of your drafts, ask Claude to <b>process reading</b>.
+                </div>
+              </div>
+            </Section>
+          )}
+        </div>
+
         <div className="mt-8 mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Highlights & notes</h2>
           <div className="flex gap-2">
+            {!recallDue && !recalling && recalls.length === 0 && <Button onClick={() => setRecalling(true)}>Recall <span className="font-mono text-xs text-faint">r</span></Button>}
             <Button onClick={() => setCapturing(true)}>Capture <span className="font-mono text-xs text-faint">a</span></Button>
             <Button
               onClick={async () => {
@@ -72,21 +138,32 @@ export function SourceDetailPage() {
           </div>
         </div>
         {capturing && <CaptureHighlight sourceId={s.id} onDone={() => setCapturing(false)} />}
-        {s.notes.length === 0 && !capturing && <Empty>Nothing captured yet. Press <b>a</b> to add a highlight.</Empty>}
+        {highlights.length + others.length === 0 && !capturing && <Empty>Nothing captured yet. Press <b>a</b> to add a highlight.</Empty>}
         {others.length > 0 && (
           <ul className="mb-6 space-y-2">
             {others.map((n) => (
               <li key={n.id}>
                 <Link to="/notes/$id" params={{ id: n.id }} className="block rounded-lg border border-line bg-panel px-4 py-3 hover:border-accent">
                   <div className="flex items-center gap-2">
-                    <Badge>{n.kind}</Badge>
+                    <Badge tone={n.kind === 'concept' || n.kind === 'claim' ? 'accent' : 'default'}>{n.kind}</Badge>
                     <span className="font-medium">{n.title}</span>
+                    <span className="ml-auto"><AuthorBadge by={n.createdBy} /></span>
                   </div>
                 </Link>
               </li>
             ))}
           </ul>
         )}
+        {gated ? (
+          <div className="rounded-lg border border-dashed border-line px-4 py-6 text-center text-sm text-muted">
+            {highlights.length} highlight{highlights.length === 1 ? '' : 's'} hidden until you've written your recall.
+            <div className="mt-2">
+              <button className="text-xs text-faint hover:text-muted hover:underline" onClick={skipRecall}>
+                Skip recall and show them <span className="font-mono">s</span>
+              </button>
+            </div>
+          </div>
+        ) : (
         <ul className="space-y-3">
           {highlights.map((n) => (
             <li key={n.id}>
@@ -101,6 +178,7 @@ export function SourceDetailPage() {
             </li>
           ))}
         </ul>
+        )}
       </div>
 
       <aside className="space-y-1 text-sm">
@@ -115,7 +193,18 @@ export function SourceDetailPage() {
             <Select value={s.kind} onChange={(e) => patch.mutate({ kind: e.target.value })} className="col-span-2">
               {SOURCE_KINDS.map((k) => <option key={k}>{k}</option>)}
             </Select>
+            <Select
+              value={s.method ?? ''}
+              title="How this source was processed, for the recall-first experiment on Stats"
+              onChange={(e) => patch.mutate({ method: e.target.value || null })}
+              className="col-span-2"
+            >
+              <option value="">Method: not processed yet</option>
+              <option value="recall_first">Method: recall first</option>
+              <option value="highlights_first">Method: highlights first</option>
+            </Select>
           </div>
+          {s.createdBy !== 'user' && <div className="mt-2"><AuthorBadge by={s.createdBy} /></div>}
           <div className="mt-2 text-xs text-faint">
             {s.startedAt && <>Started {shortDate(s.startedAt)}. </>}
             {s.finishedAt && <>Finished {shortDate(s.finishedAt)}.</>}
@@ -129,14 +218,14 @@ export function SourceDetailPage() {
         </Section>
         <Section title="Stats">
           <div className="text-muted">
-            {highlights.length} highlights · {others.length} notes · {s.cardCount} cards
+            {[[recalls.length, 'recall'], [highlights.length, 'highlight'], [others.length, 'note'], [s.cardCount, 'card']].map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`).join(' · ')}
           </div>
         </Section>
         <Section title="Tasks" actions={<button className="text-xs text-accent hover:underline" onClick={() => setAddingTask(true)}>+ task</button>}>
           {addingTask && <TaskForm sourceId={s.id} onDone={() => setAddingTask(false)} />}
           <ul className="space-y-1.5">
             {s.tasks.map((t) => (
-              <li key={t.id}><TaskRow task={t} onToggle={(x) => { complete.mutate(x.id); if (x.kind === 'read') setCapturing(true); }} /></li>
+              <li key={t.id}><TaskRow task={t} onToggle={(x) => { complete.mutate(x.id); if (x.kind === 'read') setRecalling(true); }} /></li>
             ))}
           </ul>
           {!s.tasks.length && !addingTask && <p className="text-xs text-faint">e.g. “Read chapter 4”</p>}

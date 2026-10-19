@@ -11,6 +11,7 @@ import { STATE_TONE } from '../components/CardItem';
 import { LinkForm } from '../components/LinkForm';
 import { SimilarPanel } from '../components/SimilarPanel';
 import { Markdown } from '../components/Markdown';
+import { AuthorBadge } from '../components/RecallBox';
 
 const REL_LABEL: Record<string, [string, string]> = {
   wikilink: ['links to', 'linked from'],
@@ -112,6 +113,7 @@ export function NoteDetailPage() {
       <article className="min-w-0">
         <div className="mb-1 flex items-center gap-2 text-xs text-faint">
           <Badge tone={n.kind === 'concept' || n.kind === 'claim' ? 'accent' : 'default'}>{n.kind}</Badge>
+          <AuthorBadge by={n.createdBy} />
           {n.sourceId && (
             <Link to="/sources/$id" params={{ id: n.sourceId }} className="hover:text-accent">
               {n.sourceTitle}
@@ -188,6 +190,11 @@ export function NoteDetailPage() {
             </Select>
             <Input key={n.location ?? ''} defaultValue={n.location ?? ''} placeholder="Location (page, chapter)" onBlur={(e) => e.target.value !== (n.location ?? '') && patch.mutate({ location: e.target.value || null })} />
             <TagInput value={n.tags} onChange={(tags) => patch.mutate({ tags })} />
+            <Select value={n.createdBy} onChange={(e) => patch.mutate({ createdBy: e.target.value })} className="w-full" title="Who wrote this note">
+              <option value="user">Written by me</option>
+              <option value="claude">Written by Claude</option>
+              <option value="system">Imported (quote)</option>
+            </Select>
             <Input
               key={n.aliases.join(',')}
               defaultValue={n.aliases.join(', ')}

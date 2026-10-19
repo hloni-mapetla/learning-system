@@ -83,7 +83,7 @@ export function Layout() {
         </nav>
         <div className="mt-auto space-y-1 px-5 py-4 text-[11px] text-faint">
           {status.data && !status.data.semantic && <div>Semantic search off</div>}
-          {!!status.data?.pendingEmbeddings && <div>Indexing {status.data.pendingEmbeddings}…</div>}
+          {!!status.data?.semantic && !!status.data.pendingEmbeddings && <div>Indexing {status.data.pendingEmbeddings}…</div>}
           <button onClick={() => setHelp(true)} className="hover:text-muted">
             <Kbd>?</Kbd> shortcuts
           </button>

@@ -7,7 +7,7 @@ import { Button, Input, Select } from './ui';
 const KIND_LABEL: Record<TaskKind, string> = {
   todo: 'To-do',
   read: 'Read',
-  process_highlights: 'Process highlights',
+  process_highlights: 'Recall & process',
   summarize: 'Summarize',
   write: 'Write',
 };

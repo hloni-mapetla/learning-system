@@ -321,7 +321,7 @@ Each phase below ends with `npm test` and `npm run typecheck` passing, a commit 
 - **New `review_logs` columns:**
   - `confidence INTEGER` (1–4: guessing, unsure, fairly sure, certain), NULL when not asked;
   - `attempt TEXT`, the optional typed answer from the UI.
-- **New setting `askConfidence`, off by default.**
+- **New setting `askConfidence`, on by default** (your choice: you want to experiment with it).
   - **UI, when on:** before reveal, `1`–`4` set confidence *and* reveal, and space reveals without one. After reveal, `1`–`4` rate as now. The key hints change with the phase so this is never ambiguous.
   - **MCP:** `record_review` gains `confidence`. When the setting is on, `daily_review` asks "how sure, 1–4?" together with the answer.
 - **Fluency fixes in Review:**
@@ -399,7 +399,7 @@ ALTER TABLE notes_new RENAME TO notes;
 - The **FTS rows are untouched.** `notes_fts` is a separate table keyed by id, so search keeps working without a rebuild.
 - `cards.note_id` and `tasks.note_id` still point at the same ids, and `foreign_key_check` proves it.
 - **Authorship backfill:**
-  - notes with `dedupe_key` LIKE `kindle:%` / `paste:%` / `md:%` → `system` (imported);
+  - notes with `dedupe_key` LIKE `kindle:%` / `paste:%` → `system` (imported quotes). Markdown imports stay `user`, since they're your own files;
   - notes that are the `from` end of a `claude` link with rationale `extracted from` → `claude`;
   - everything else → `user`.
 
@@ -440,6 +440,6 @@ The backup file path is printed, so rollback is just copying it back.
 
 1. **Why/how as `prompt_kind` on open cards rather than a new card `type`.** Default: `prompt_kind`, because it avoids rebuilding the cards table. The UI presents it as its own card type.
 2. **Highlight gating is UI-only.** The API and MCP return highlights, and the MCP prompts tell Claude not to show them before recall. Default: UI-only, because hard-gating the API would break `get_recall_review`.
-3. **Confidence prompt off by default.** It adds a keypress per card. Default: off, with a toggle on Stats and on Review (`K`).
+3. **Confidence prompt: ON** (decided). It adds a keypress per card; it can be turned off on Stats and on Review (`K`).
 4. **Interleaving on by default**, with a setting to switch it off.
 5. **Exam plan sizing** of ~2 cards per minute and a final mock exam. Adjustable per plan.

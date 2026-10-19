@@ -21,8 +21,8 @@ export function createExporter(ctx: Ctx) {
   const { db } = ctx;
 
   function json(): Record<string, unknown> {
-    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'settings'];
-    const out: Record<string, unknown> = { format: 'loom-export', version: 1, exportedAt: new Date().toISOString() };
+    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'exams', 'settings'];
+    const out: Record<string, unknown> = { format: 'loom-export', version: 2, schema: db.schemaVersion(), exportedAt: new Date().toISOString() };
     for (const t of tables) out[t] = db.all(`SELECT * FROM ${t}${t === 'settings' ? ` WHERE key NOT IN ('owner_password', 'api_tokens')` : ''}`);
     return out;
   }
@@ -75,7 +75,7 @@ export function createExporter(ctx: Ctx) {
       writeFileSync(
         join(dir, folder, fileName(folder, n.title)),
         yaml({ type: n.kind, id: n.id, source: src ? `[[${src.title}]]` : null, location: n.location, aliases: JSON.parse(n.aliases),
-          tags: tagsOf('note', n.id), created: n.created_at, updated: n.updated_at }) + `# ${n.title}\n\n${body}\n`,
+          tags: tagsOf('note', n.id), author: n.created_by === 'user' ? null : n.created_by, created: n.created_at, updated: n.updated_at }) + `# ${n.title}\n\n${body}\n`,
       );
       files++;
     }

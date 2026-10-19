@@ -29,6 +29,17 @@ const GROUPS: [string, [string, string][]][] = [
     ],
   ],
   [
+    'Source',
+    [
+      ['r', 'Recall first (focus / new recall)'],
+      ['⌘↵', 'Save recall'],
+      ['s', 'Skip recall, show highlights'],
+      ['n', 'Draft a concept note'],
+      ['N', 'Draft a claim note'],
+      ['a', 'Capture a highlight'],
+    ],
+  ],
+  [
     'Note',
     [
       ['e', 'Edit body'],

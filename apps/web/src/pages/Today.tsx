@@ -6,7 +6,7 @@ import { useListNav } from '../lib/useListNav';
 import { Button, Empty, PageHeader, Section } from '../components/ui';
 import { TaskForm } from '../components/TaskForm';
 import { TaskRow } from '../components/TaskRow';
-import { CaptureHighlight } from './SourceDetail';
+import { RecallBox } from '../components/RecallBox';
 import { Priority } from './Sources';
 
 interface QueueItem {
@@ -77,13 +77,15 @@ export function TodayPage() {
           <div className="mb-6 rounded-lg border border-accent bg-panel p-4">
             <div className="mb-2 font-medium">{capture.message}</div>
             {capture.sourceId ? (
-              <CaptureHighlight sourceId={capture.sourceId} onDone={() => setCapture(null)} />
-            ) : null}
+              <RecallBox sourceId={capture.sourceId} sourceTitle={capture.sourceTitle} onSaved={() => setCapture(null)} />
+            ) : (
+              <p className="text-sm text-muted">Write it down anywhere (press <b>c</b> for a new note), then look at your highlights.</p>
+            )}
             <div className="mt-2 flex gap-2">
               <Button
                 size="sm"
                 onClick={async () => {
-                  await laterTask.mutateAsync({ title: `Process highlights: ${capture.sourceTitle ?? 'reading'}`, kind: 'process_highlights', sourceId: capture.sourceId, dueDate: tomorrow(), priority: 2 });
+                  await laterTask.mutateAsync({ title: `Recall & process: ${capture.sourceTitle ?? 'reading'}`, kind: 'process_highlights', sourceId: capture.sourceId, dueDate: tomorrow(), priority: 2 });
                   setCapture(null);
                 }}
               >
