@@ -16,6 +16,7 @@ import { createRelated } from './services/related.ts';
 import { createStudy } from './services/study.ts';
 import { createTasks } from './services/tasks.ts';
 import { createSubtasks } from './services/subtasks.ts';
+import { createSessions } from './services/sessions.ts';
 import { createGraph } from './services/graph.ts';
 import { createStats } from './services/stats.ts';
 import { createImporter } from './services/importer.ts';
@@ -40,6 +41,7 @@ export type { ImportReport } from './services/importer.ts';
 export { parseKindleClippings } from './importers/kindle.ts';
 export { REVIEW_TASK_ID, type CompleteResult } from './services/tasks.ts';
 export type { SubtaskResult, AddStepsResult } from './services/subtasks.ts';
+export { STALE_AFTER_MINUTES, type StartSession } from './services/sessions.ts';
 export type { RecallStatus, RecallComparison } from './services/processing.ts';
 
 export interface LoomOptions {
@@ -78,6 +80,7 @@ export function createLoom(opts: LoomOptions = {}) {
   const study = createStudy(ctx, cards, review, topics);
   const tasks = createTasks(ctx, review);
   const subtasks = createSubtasks(ctx, tasks);
+  const sessions = createSessions(ctx, tasks, settings, notes);
   const graph = createGraph(ctx);
   const stats = createStats(ctx, cards, review);
   const importer = createImporter(ctx, sources, notes);
@@ -128,6 +131,7 @@ export function createLoom(opts: LoomOptions = {}) {
     study,
     tasks,
     subtasks,
+    sessions,
     graph,
     stats,
     importer,

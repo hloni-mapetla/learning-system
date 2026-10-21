@@ -7,6 +7,38 @@ import { useHotkeys } from '../lib/hotkeys';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Kbd } from './ui';
 import { ShortcutHelp } from './ShortcutHelp';
+import { clock, useNow, useSessionAlarms, useSessionState } from '../lib/session';
+
+/** Announces block/break ends from any page (rendered once). */
+function SessionAlarms() {
+  const state = useSessionState();
+  useSessionAlarms(state.data, useNow(1000));
+  return null;
+}
+
+/** The running session (or break) as a compact timer that opens the focus view. */
+function SessionPill({ className = '' }: { className?: string }) {
+  const state = useSessionState();
+  const now = useNow(1000);
+  const run = state.data?.running;
+  const brk = state.data?.onBreak;
+  if (!run && !brk) return null;
+  const left = run ? Date.parse(run.endsAt) - now : Date.parse(brk!.until) - now;
+  const label = brk ? 'Break' : run!.kind === 'starter' ? 'Starter' : 'Focus';
+  const up = run && left <= 0;
+  return (
+    <Link
+      to="/focus"
+      className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${up ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-sunken text-muted'} ${className}`}
+      title="Open the focus view (g f)"
+    >
+      <span className={`size-1.5 rounded-full ${brk ? 'bg-faint' : 'animate-pulse bg-accent'}`} />
+      <span className="font-medium">{label}</span>
+      <span className="min-w-0 flex-1 truncate">{run?.subtaskTitle ?? run?.taskTitle ?? ''}</span>
+      {up ? <span className="shrink-0 font-medium">time's up</span> : <span className="font-mono tabular-nums">{clock(left)}</span>}
+    </Link>
+  );
+}
 
 export const NAV: { to: string; label: string; key: string }[] = [
   { to: '/today', label: 'Today', key: 't' },
@@ -14,6 +46,7 @@ export const NAV: { to: string; label: string; key: string }[] = [
   { to: '/sources', label: 'Sources', key: 's' },
   { to: '/notes', label: 'Notes', key: 'n' },
   { to: '/daily', label: 'Daily note', key: 'd' },
+  { to: '/focus', label: 'Focus', key: 'f' },
   { to: '/cards', label: 'Cards', key: 'c' },
   { to: '/graph', label: 'Graph', key: 'g' },
   { to: '/stats', label: 'Stats', key: 'i' },
@@ -98,6 +131,7 @@ export function Layout() {
           ))}
         </nav>
         <div className="mt-auto space-y-1 px-5 py-4 text-[11px] text-faint">
+          <SessionPill className="mb-2 -mx-2" />
           {status.data && !status.data.semantic && <div>Semantic search off</div>}
           {!!status.data?.semantic && !!status.data.pendingEmbeddings && <div>Indexing {status.data.pendingEmbeddings}…</div>}
           <button onClick={() => setHelp(true)} className="hover:text-muted">
@@ -112,6 +146,7 @@ export function Layout() {
             ☰
           </button>
           <span className="font-semibold">Loom</span>
+          <SessionPill className="min-w-0 max-w-[50%]" />
           <button onClick={() => setPalette(true)} className="ml-auto text-sm text-muted">
             Search
           </button>
@@ -122,6 +157,7 @@ export function Layout() {
       </main>
       <CommandPalette open={palette} onClose={() => setPalette(false)} commands={commands} />
       {help && <ShortcutHelp onClose={() => setHelp(false)} />}
+      <SessionAlarms />
       {capture && <QuickCapture onClose={() => setCapture(false)} onSaved={onCaptured} />}
       {toast && (
         <div className="fixed right-4 bottom-4 z-50 flex items-center gap-3 rounded-lg border border-line bg-panel px-4 py-2.5 text-sm shadow-lg">

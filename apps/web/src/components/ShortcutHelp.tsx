@@ -10,6 +10,7 @@ const GROUPS: [string, [string, string][]][] = [
       ['c', 'Create a note'],
       ['q', 'Quick capture a thought'],
       ['g d', "Today's daily note"],
+      ['g f', 'Focus view (running session)'],
       ['g s', 'Go to sources'],
       ['g t', 'Go to today'],
       ['g n', 'Go to notes'],
@@ -40,6 +41,19 @@ const GROUPS: [string, [string, string][]][] = [
       ['⌥↑ / ⌥↓', 'Move step up / down (or K / J)'],
       ['⌫', 'Delete step'],
       ['S', 'Mark task single-step'],
+      ['t', 'Start “just 10 minutes” on it'],
+      ['f', 'Start a focus block on it'],
+    ],
+  ],
+  [
+    'Focus view',
+    [
+      ['x', 'Step done, on to the next'],
+      ['p', 'Park a distracting thought'],
+      ['s', 'Stop here (it counts)'],
+      ['↵', 'Keep going (after a starter)'],
+      ['f', 'Start the next block'],
+      ['esc', 'Hide (timer keeps running)'],
     ],
   ],
   [

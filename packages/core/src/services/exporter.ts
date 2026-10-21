@@ -21,7 +21,7 @@ export function createExporter(ctx: Ctx) {
   const { db } = ctx;
 
   function json(): Record<string, unknown> {
-    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'subtasks', 'task_events', 'exams', 'settings'];
+    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'subtasks', 'task_events', 'sessions', 'exams', 'settings'];
     const out: Record<string, unknown> = { format: 'loom-export', version: 3, schema: db.schemaVersion(), exportedAt: new Date().toISOString() };
     for (const t of tables) out[t] = db.all(`SELECT * FROM ${t}${t === 'settings' ? ` WHERE key NOT IN ('owner_password', 'api_tokens')` : ''}`);
     return out;

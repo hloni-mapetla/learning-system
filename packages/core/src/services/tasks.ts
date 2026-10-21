@@ -12,15 +12,12 @@ export function logTaskEvent(
   db: Db,
   e: { taskId: string; type: TaskEventType; subtaskId?: string | null; detail?: unknown; by?: Actor; at?: string },
 ): void {
-  db.run(`INSERT INTO task_events (id, task_id, subtask_id, type, detail, created_by, at) VALUES (?, ?, ?, ?, ?, ?, ?)`, [
-    newId(),
-    e.taskId,
-    e.subtaskId ?? null,
-    e.type,
-    e.detail === undefined ? null : JSON.stringify(e.detail),
-    e.by ?? 'user',
-    e.at ?? nowIso(),
-  ]);
+  // Anything done while a session is running is credited to that session.
+  db.run(
+    `INSERT INTO task_events (id, task_id, subtask_id, type, detail, created_by, at, session_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT id FROM sessions WHERE ended_at IS NULL))`,
+    [newId(), e.taskId, e.subtaskId ?? null, e.type, e.detail === undefined ? null : JSON.stringify(e.detail), e.by ?? 'user', e.at ?? nowIso()],
+  );
 }
 
 export function toSubtask(r: any): Subtask {
@@ -274,6 +271,12 @@ export function createTasks(ctx: Ctx, review: Review) {
         `SELECT e.task_id AS taskId, t.title AS taskTitle, max(e.at) AS at
          FROM task_events e JOIN tasks t ON t.id = e.task_id
          WHERE e.type = 'steps_defined' AND e.at >= :start AND e.at < :end GROUP BY e.task_id ORDER BY at`,
+        p,
+      ),
+      sessions: db.all<DoneToday['sessions'][number]>(
+        `SELECT id, kind, task_title AS taskTitle, round((julianday(ended_at) - julianday(started_at)) * 1440, 1) AS minutes, outcome,
+           started_at AS at
+         FROM sessions WHERE ended_at IS NOT NULL AND outcome <> 'abandoned' AND started_at >= :start AND started_at < :end ORDER BY started_at`,
         p,
       ),
     };

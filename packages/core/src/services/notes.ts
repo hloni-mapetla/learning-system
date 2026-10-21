@@ -205,15 +205,32 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
     return create({ title: date, kind: 'note', body: '', dedupeKey: key }, 'user');
   }
 
-  /** Append a thought to a daily note as its own paragraph, stamped with the local time. */
-  function appendDaily(text: string, opts: { date?: string; now?: Date } = {}): Note {
+  /**
+   * Append a thought to a daily note as its own paragraph, stamped with the local time. With `section`, it goes in as a
+   * list item under a "## <section>" heading (created at the end of the note if missing), e.g. the focus parking lot.
+   */
+  function appendDaily(text: string, opts: { date?: string; now?: Date; section?: string } = {}): Note {
     const t = text.trim();
     if (!t) throw new ValidationError('Nothing to append');
     const n = daily(opts.date);
     const now = opts.now ?? new Date();
     const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const body = n.body.trim() ? `${n.body.trimEnd()}\n\n**${time}** ${t}` : `**${time}** ${t}`;
-    return update(n.id, { body });
+    const cur = n.body.trimEnd();
+    if (!opts.section) return update(n.id, { body: cur ? `${cur}\n\n**${time}** ${t}` : `**${time}** ${t}` });
+
+    const heading = `## ${opts.section}`;
+    const item = `- **${time}** ${t}`;
+    const lines = cur ? cur.split('\n') : [];
+    const h = lines.findIndex((l) => l.trim() === heading);
+    if (h < 0) return update(n.id, { body: [cur, `${heading}\n\n${item}`].filter(Boolean).join('\n\n') });
+    // Keep the section's list together: after its last item, else right under the heading.
+    let end = lines.findIndex((l, i) => i > h && /^#{1,2} /.test(l));
+    if (end < 0) end = lines.length;
+    let last = -1;
+    for (let i = h + 1; i < end; i++) if (lines[i].startsWith('- ')) last = i;
+    if (last >= 0) lines.splice(last + 1, 0, item);
+    else lines.splice(h + 1, 0, '', item);
+    return update(n.id, { body: lines.join('\n') });
   }
 
   /** Dates that have a daily note, newest first. */

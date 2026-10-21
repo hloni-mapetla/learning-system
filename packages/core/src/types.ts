@@ -198,12 +198,49 @@ export interface Subtask {
   createdAt: string;
 }
 
+export const SESSION_KINDS = ['starter', 'focus'] as const;
+export type SessionKind = (typeof SESSION_KINDS)[number];
+export type SessionOutcome = 'completed' | 'stopped' | 'continued' | 'abandoned';
+
+/** A timed work session: a short starter ("just 10 minutes") or a focus block followed by a real break. */
+export interface Session {
+  id: string;
+  kind: SessionKind;
+  taskId: string | null;
+  subtaskId: string | null;
+  taskTitle: string | null;
+  subtaskTitle: string | null;
+  plannedMinutes: number;
+  breakMinutes: number;
+  startedAt: string;
+  /** When the planned time runs out. */
+  endsAt: string;
+  endedAt: string | null;
+  /** null while running. */
+  outcome: SessionOutcome | null;
+  actualMinutes: number | null;
+  continuedFrom: string | null;
+  createdBy: Actor;
+  /** Steps ticked off while this session was running. */
+  subtasksCompleted: { id: string; title: string }[];
+}
+
+/** The live timer state: a running session, or a break after a finished focus block. */
+export interface SessionState {
+  running: Session | null;
+  onBreak: { until: string; after: Session } | null;
+}
+
+export const STARTER_QUESTION = 'Keep going? Stopping here counts.';
+
 /** What got done in a day: completed tasks and steps, and tasks whose steps were defined. */
 export interface DoneToday {
   date: string;
   tasks: { id: string; title: string; at: string }[];
   subtasks: { id: string; title: string; taskId: string; taskTitle: string; at: string }[];
   stepsDefined: { taskId: string; taskTitle: string; at: string }[];
+  /** Starter sessions and focus blocks that weren't abandoned. */
+  sessions: { id: string; kind: SessionKind; taskTitle: string | null; minutes: number; outcome: SessionOutcome; at: string }[];
 }
 
 export interface SearchHit {

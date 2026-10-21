@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { Db } from '../src/db.ts';
 import { createLoom } from '../src/index.ts';
 import { fakeEmbedder } from './helpers.ts';
+import { readdirSync } from 'node:fs';
+
+const LATEST = Math.max(...readdirSync(join(import.meta.dirname, '../src/migrations')).map((f) => parseInt(f, 10)).filter((n) => n > 0));
 
 // Columns that existed in v2; the v3 upgrade must leave every one of them untouched.
 const CARD_COLS = 'id,type,origin,front,back,rubric,note_id,cloze_index,suspended,created_by,due,stability,difficulty,elapsed_days,scheduled_days,learning_steps,reps,lapses,state,last_review,created_at,updated_at';
@@ -66,8 +69,8 @@ describe('schema v3 migration', () => {
 
     const loom = createLoom({ dbPath: path, embedder: fakeEmbedder(), db: { backupDir: join(dir, 'backups') } });
     const { db } = loom;
-    expect(db.schemaVersion()).toBe(4);
-    expect(db.migrationBackup).toMatch(/pre-migration-v2-to-v4-.*\.db$/);
+    expect(db.schemaVersion()).toBe(LATEST);
+    expect(db.migrationBackup).toMatch(new RegExp(`pre-migration-v2-to-v${LATEST}-.*\\.db$`));
     expect(existsSync(db.migrationBackup!)).toBe(true);
     expect(new Db(db.migrationBackup!, { migrateTo: 2, backupDir: null }).schemaVersion()).toBe(2);
 
@@ -121,7 +124,7 @@ describe('schema v3 migration', () => {
     v3.close();
 
     const loom = createLoom({ dbPath: path, embedder: null, db: { backupDir: join(dir, 'backups') } });
-    expect(loom.db.migrationBackup).toMatch(/pre-migration-v3-to-v4-.*\.db$/);
+    expect(loom.db.migrationBackup).toMatch(new RegExp(`pre-migration-v3-to-v${LATEST}-.*\\.db$`));
     expect(loom.db.all(`SELECT ${CARD_COLS} FROM cards ORDER BY id`)).toEqual(before.cards);
     expect(loom.db.all(`SELECT ${LOG_COLS} FROM review_logs ORDER BY id`)).toEqual(before.logs);
     const after = loom.db.all<Record<string, unknown>>('SELECT * FROM tasks ORDER BY id');
@@ -134,10 +137,28 @@ describe('schema v3 migration', () => {
     loom.close();
   });
 
+  it('v4 → v5 adds sessions without touching tasks, steps or their events', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'loom-mig5-'));
+    const path = join(dir, 'loom.db');
+    buildV2(path);
+    const v4 = new Db(path, { migrateTo: 4, backupDir: null });
+    v4.exec(`INSERT INTO subtasks (id, task_id, title, sort_order, completed_at, created_at, updated_at)
+               VALUES ('ST1', 'T1', 'Reread the summary page', 0, '2026-10-20T09:00:00.000Z', 'x', 'x');
+             INSERT INTO task_events (id, task_id, subtask_id, type, at) VALUES ('E1', 'T1', 'ST1', 'subtask_done', '2026-10-20T09:00:00.000Z');`);
+    const snap = ['tasks', 'subtasks', 'task_events'].map((t) => v4.all(`SELECT * FROM ${t} ORDER BY id`));
+    v4.close();
+    const loom = createLoom({ dbPath: path, embedder: null, db: { backupDir: join(dir, 'backups') } });
+    expect(loom.db.migrationBackup).toMatch(new RegExp(`pre-migration-v4-to-v${LATEST}-`));
+    expect(['tasks', 'subtasks', 'task_events'].map((t) => loom.db.all(`SELECT * FROM ${t} ORDER BY id`))).toEqual(snap);
+    expect(loom.db.all('PRAGMA foreign_key_check')).toEqual([]);
+    expect(loom.sessions.start({ kind: 'starter', subtaskId: 'ST1' }).taskId).toBe('T1');
+    loom.close();
+  });
+
   it('does not back up a brand-new database', () => {
     const dir = mkdtempSync(join(tmpdir(), 'loom-new-'));
     const loom = createLoom({ dbPath: join(dir, 'loom.db'), embedder: null, db: { backupDir: join(dir, 'backups') } });
-    expect(loom.db.schemaVersion()).toBe(4);
+    expect(loom.db.schemaVersion()).toBe(LATEST);
     expect(loom.db.migrationBackup).toBeNull();
     loom.close();
   });

@@ -11,6 +11,11 @@ export interface Settings {
   learnAheadMinutes: number;
   /** Optimised FSRS weights, when available. */
   fsrsWeights: number[] | null;
+  /** "Just 10 minutes" starter session length. */
+  starterMinutes: number;
+  /** Focus block and the break after it. */
+  focusMinutes: number;
+  breakMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -21,6 +26,9 @@ export const DEFAULT_SETTINGS: Settings = {
   relearningSteps: ['10m'],
   learnAheadMinutes: 20,
   fsrsWeights: null,
+  starterMinutes: 10,
+  focusMinutes: 45,
+  breakMinutes: 10,
 };
 
 export function createSettings(db: Db) {

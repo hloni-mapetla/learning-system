@@ -18,6 +18,7 @@ export function TaskRow({
   onExpand,
   expanded,
   showFirstStep,
+  onStart,
   children,
 }: {
   task: Task;
@@ -27,6 +28,8 @@ export function TaskRow({
   expanded?: boolean;
   /** Show the "What's the very first physical step?" input on undefined tasks (Today). */
   showFirstStep?: boolean;
+  /** Start "just 10 minutes" on this task (Today). */
+  onStart?: (t: Task) => void;
   children?: React.ReactNode;
 }) {
   const single = useAction(() => api.patch(`/tasks/${task.id}`, { singleStep: true }));
@@ -47,7 +50,7 @@ export function TaskRow({
   const { progress, nextAction } = task;
   const allDone = !done && progress.total > 0 && progress.done === progress.total;
   return (
-    <div className={`rounded-lg border bg-panel px-4 py-2.5 ${selected ? 'border-accent' : 'border-line'}`}>
+    <div className={`group rounded-lg border bg-panel px-4 py-2.5 ${selected ? 'border-accent' : 'border-line'}`}>
     <div className="flex items-center gap-3">
       <button
         onClick={() => onToggle(task)}
@@ -81,6 +84,15 @@ export function TaskRow({
         </div>
       </div>
       <AuthorBadge by={task.createdBy} />
+      {onStart && !done && (
+        <button
+          onClick={() => onStart(task)}
+          title="Just 10 minutes (t), or a focus block (f)"
+          className={`shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-muted hover:border-accent hover:text-accent ${selected ? '' : 'hidden group-hover:inline-block'}`}
+        >
+          ▶ start <span className="font-mono text-faint">t</span>
+        </button>
+      )}
       <StepProgress done={progress.done} total={progress.total} />
       {task.priority <= 2 && <Badge tone={task.priority === 1 ? 'danger' : 'warn'}>P{task.priority}</Badge>}
       {task.dueDate && <span className={`shrink-0 text-xs ${overdue ? 'text-danger' : 'text-faint'}`}>{task.dueDate === today() ? 'today' : shortDate(task.dueDate)}</span>}

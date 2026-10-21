@@ -156,6 +156,28 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
   r.get('/done-today', (_req, res) => res.json(loom.tasks.doneToday()));
   r.get('/tasks/:id', (req, res) => res.json(loom.tasks.get(req.params.id)));
 
+  // ---- sessions (starter / focus) and the parking lot ----
+  r.get('/sessions/state', (_req, res) => res.json(loom.sessions.state()));
+  r.get('/sessions', (req, res) => res.json(loom.sessions.list({ from: str(req.query.from), to: str(req.query.to), limit: num(req.query.limit) })));
+  r.post('/sessions', (req, res) => {
+    const b = z
+      .object({
+        kind: z.enum(['starter', 'focus']),
+        taskId: z.string().nullish(),
+        subtaskId: z.string().nullish(),
+        minutes: z.number().positive().optional(),
+        continuedFrom: z.string().nullish(),
+      })
+      .parse(req.body);
+    res.status(201).json(loom.sessions.start(b));
+  });
+  r.post('/sessions/:id/end', (req, res) => {
+    const { outcome } = z.object({ outcome: z.literal('abandoned').optional() }).parse(req.body ?? {});
+    res.json(loom.sessions.end(req.params.id, { outcome }));
+  });
+  r.post('/sessions/:id/keep-going', (req, res) => res.status(201).json(loom.sessions.keepGoing(req.params.id)));
+  r.post('/park', (req, res) => res.json(loom.sessions.park(z.object({ text: z.string().min(1) }).parse(req.body).text)));
+
   // ---- subtasks (steps) ----
   r.post('/tasks/:id/subtasks', (req, res) => {
     const b = schemas.SubtaskCreate.partial({ title: true }).extend({ titles: z.array(z.string()).optional() }).parse(req.body);
@@ -250,6 +272,9 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
         maximumInterval: z.number().int().min(1),
         newCardsPerDay: z.number().int().min(0).max(1000),
         learnAheadMinutes: z.number().int().min(0).max(240),
+        starterMinutes: z.number().min(1).max(60),
+        focusMinutes: z.number().min(5).max(240),
+        breakMinutes: z.number().min(0).max(60),
       })
       .partial()
       .parse(req.body);

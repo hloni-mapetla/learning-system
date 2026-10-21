@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import type { CompleteResult, DoneToday, Subtask, Task } from '@loom/core';
 import { api, useAction, useApi } from '../lib/api';
 import { useHotkeys } from '../lib/hotkeys';
+import { useStartSession } from '../lib/session';
 import { Button, Empty, PageHeader, Section } from '../components/ui';
 import { TaskForm } from '../components/TaskForm';
 import { TaskRow } from '../components/TaskRow';
@@ -65,6 +66,13 @@ export function TodayPage() {
   const removeStep = useAction((id: string) => api.del(`/subtasks/${id}`));
   const setSingle = useAction((t: Task) => api.patch(`/tasks/${t.id}`, { singleStep: !t.singleStep }));
 
+  const startSession = useStartSession();
+  /** t = "just 10 minutes", f = focus block, on the selected step or the task's next action. */
+  const startOn = (kind: 'starter' | 'focus') => {
+    if (!cur || cur.task.virtual || cur.task.status === 'done') return;
+    startSession(kind, { taskId: cur.task.id, subtaskId: cur.step && !cur.step.done ? cur.step.id : (cur.task.nextAction?.id ?? null) });
+  };
+
   const toggle = async (t: Task) => {
     if (t.virtual) return navigate({ to: '/review' });
     if (t.status === 'done') return reopen.mutate(t.id);
@@ -109,6 +117,8 @@ export function TodayPage() {
       K: () => move(-1),
       J: () => move(1),
       S: () => cur && !cur.task.virtual && setSingle.mutate(cur.task),
+      t: () => startOn('starter'),
+      f: () => startOn('focus'),
       Backspace: () => {
         if (!cur?.step || !confirm(`Delete step “${cur.step.title}”?`)) return;
         go(-1);
@@ -126,7 +136,15 @@ export function TodayPage() {
         const open = expanded.has(t.id);
         return (
           <li key={t.id} data-row={i}>
-            <TaskRow task={t} selected={i === sel} onToggle={toggle} onExpand={(x) => expand(x)} expanded={open} showFirstStep={!open}>
+            <TaskRow
+              task={t}
+              selected={i === sel}
+              onToggle={toggle}
+              onExpand={(x) => expand(x)}
+              expanded={open}
+              showFirstStep={!open}
+              onStart={(x) => startSession('starter', { taskId: x.id, subtaskId: x.nextAction?.id ?? null })}
+            >
               {open && (
                 <TaskSteps task={t} rowIndex={i + 1} selectedId={cur?.step?.id ?? null} editingId={editing} onEdited={() => setEditing(null)} />
               )}
@@ -136,7 +154,8 @@ export function TodayPage() {
       })}
     </ul>
   );
-  const doneCount = (done.data?.tasks.length ?? 0) + (done.data?.subtasks.length ?? 0) + (done.data?.stepsDefined.length ?? 0);
+  const doneCount =
+    (done.data?.tasks.length ?? 0) + (done.data?.subtasks.length ?? 0) + (done.data?.stepsDefined.length ?? 0) + (done.data?.sessions.length ?? 0);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
@@ -181,6 +200,16 @@ export function TodayPage() {
               ))}
               {done.data!.subtasks.map((d) => (
                 <li key={`s${d.id}`} className="flex gap-2"><span className="text-accent">✓</span><span className="min-w-0 truncate">{d.title} <span className="text-faint">· {d.taskTitle}</span></span></li>
+              ))}
+              {done.data!.sessions.map((d) => (
+                <li key={`f${d.id}`} className="flex gap-2">
+                  <span className="text-accent">▶</span>
+                  <span className="min-w-0 truncate">
+                    {d.kind === 'starter' ? 'Started' : 'Focus block'} · {Math.max(1, Math.round(d.minutes))} min
+                    {d.outcome === 'continued' && ', kept going'}
+                    {d.taskTitle && <span className="text-faint"> · {d.taskTitle}</span>}
+                  </span>
+                </li>
               ))}
               {done.data!.tasks.map((d) => (
                 <li key={`t${d.id}`} className="flex gap-2"><span className="text-accent">✔</span><span className="min-w-0 truncate font-medium">{d.title}</span></li>

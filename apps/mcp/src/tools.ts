@@ -13,6 +13,7 @@ import {
   type CardView,
   type ItemType,
   type Loom,
+  type Session,
   type Subtask,
   type SubtaskResult,
   type Task,
@@ -927,6 +928,101 @@ export function registerTools(server: McpServer, loom: Loom) {
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     },
     async ({ subtask_id }) => json(taskOut(loom.subtasks.remove(subtask_id), true)),
+  );
+
+  // ================= sessions (starter / focus) =================
+
+  const sessionOut = (x: Session) => ({
+    id: x.id,
+    kind: x.kind,
+    task: x.taskTitle ?? undefined,
+    task_id: x.taskId ?? undefined,
+    step: x.subtaskTitle ?? undefined,
+    step_id: x.subtaskId ?? undefined,
+    planned_minutes: x.plannedMinutes,
+    started_at: x.startedAt,
+    ends_at: x.endsAt,
+    ...(x.endedAt ? { ended_at: x.endedAt, actual_minutes: x.actualMinutes, outcome: x.outcome } : { running: true }),
+    ...(x.subtasksCompleted.length ? { steps_completed: x.subtasksCompleted.map((s) => s.title) } : {}),
+    ...(x.continuedFrom ? { continued_from: x.continuedFrom } : {}),
+    ...(x.createdBy !== 'user' ? { created_by: x.createdBy } : {}),
+  });
+
+  server.registerTool(
+    'start_session',
+    {
+      title: 'Start a work session',
+      description:
+        'Start a timed session in Loom (the timer shows in the web UI). kind "starter" = "just 10 minutes" to get past starting ' +
+        '(length from settings); kind "focus" = a full focus block followed by a real break. Attach it to a task_id and/or the step ' +
+        '(subtask_id, usually the next_action). Only one session runs at a time. Offer it; start it only when the user says yes.',
+      inputSchema: {
+        kind: z.enum(['starter', 'focus']).default('starter'),
+        task_id: z.string().optional(),
+        subtask_id: z.string().optional(),
+        minutes: z.number().positive().max(240).optional(),
+      },
+      annotations: WRITE,
+    },
+    async (a) => json(sessionOut(loom.sessions.start({ kind: a.kind, taskId: a.task_id, subtaskId: a.subtask_id, minutes: a.minutes }, 'claude'))),
+  );
+
+  server.registerTool(
+    'end_session',
+    {
+      title: 'End a work session',
+      description:
+        'End the running session. Its outcome follows the clock: "completed" if the planned time ran out, else "stopped" (stopping a starter ' +
+        'early still counts). keep_going: true rolls a starter into a full focus block on the same work. abandon: true only if the user says ' +
+        'it should not count.',
+      inputSchema: { session_id: z.string(), keep_going: z.boolean().default(false), abandon: z.boolean().default(false) },
+      annotations: WRITE,
+    },
+    async ({ session_id, keep_going, abandon }) => {
+      if (keep_going) {
+        const next = loom.sessions.keepGoing(session_id, 'claude');
+        return json({ ended: sessionOut(loom.sessions.get(session_id)), started: sessionOut(next) });
+      }
+      return json(sessionOut(loom.sessions.end(session_id, { outcome: abandon ? 'abandoned' : undefined })));
+    },
+  );
+
+  server.registerTool(
+    'get_sessions',
+    {
+      title: 'Get work sessions',
+      description:
+        'The live timer (running session, or a break after a focus block) and the session log: starter sessions and focus blocks with ' +
+        'planned vs actual minutes, outcome and steps completed. from/to are ISO dates or timestamps (default: the last 7 days).',
+      inputSchema: { from: z.string().optional(), to: z.string().optional(), limit: z.number().int().min(1).max(500).default(100) },
+      annotations: READ,
+    },
+    async ({ from, to, limit }) => {
+      const st = loom.sessions.state();
+      const since = from ?? new Date(Date.now() - 7 * 86_400_000).toISOString();
+      return json({
+        running: st.running ? sessionOut(st.running) : null,
+        on_break_until: st.onBreak?.until ?? null,
+        sessions: loom.sessions.list({ from: since, to, limit }).map(sessionOut),
+      });
+    },
+  );
+
+  server.registerTool(
+    'park_thought',
+    {
+      title: 'Park a distracting thought',
+      description:
+        'Parking lot: during a focus block, save a distracting thought ("check that email") under "Parked" in today\'s daily note so the user ' +
+        "can deal with it after the block, without acting on it now. Save their words.",
+      inputSchema: { text: z.string().min(1) },
+      annotations: WRITE,
+    },
+    async ({ text }) => {
+      const n = loom.sessions.park(text);
+      kick();
+      return json({ parked: text, daily_note: n.title, daily_note_id: n.id });
+    },
   );
 
   // ================= import & stats =================

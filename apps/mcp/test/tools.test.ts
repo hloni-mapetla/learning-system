@@ -316,3 +316,35 @@ describe('MCP steps (subtasks)', () => {
     expect(client.getInstructions()).toMatch(/the user drafts the steps first/);
   });
 });
+
+describe('MCP sessions and parking lot', () => {
+  it('annotates session tools', async () => {
+    const { tools } = await client.listTools();
+    const ann = (n: string) => tools.find((t) => t.name === n)!.annotations!;
+    expect(ann('get_sessions').readOnlyHint).toBe(true);
+    for (const n of ['start_session', 'end_session', 'park_thought']) expect(ann(n).readOnlyHint).toBe(false);
+  });
+
+  it('starts a starter on the next action, keeps going into a focus block, and logs both as Claude-started', async () => {
+    const t = loom.tasks.create({ title: 'Grant report' });
+    const { added } = loom.subtasks.add(t.id, ['Open last year report PDF', 'Copy the budget table']);
+    const s = await call('start_session', { kind: 'starter', subtask_id: added[0].id });
+    expect(s).toMatchObject({ kind: 'starter', task: 'Grant report', step: 'Open last year report PDF', planned_minutes: 10, running: true, created_by: 'claude' });
+    await expect(call('start_session', { kind: 'focus' })).rejects.toThrow(/already running/);
+    loom.subtasks.complete(added[0].id);
+    const r = await call('end_session', { session_id: s.id, keep_going: true });
+    expect(r.ended).toMatchObject({ outcome: 'continued', steps_completed: ['Open last year report PDF'] });
+    expect(r.started).toMatchObject({ kind: 'focus', step: 'Copy the budget table', planned_minutes: 45, continued_from: s.id });
+    const log = await call('get_sessions', {});
+    expect(log.running.id).toBe(r.started.id);
+    expect(log.sessions).toHaveLength(2);
+    const stopped = await call('end_session', { session_id: r.started.id });
+    expect(stopped.outcome).toBe('stopped');
+  });
+
+  it('parks a thought in the daily note', async () => {
+    const r = await call('park_thought', { text: 'check that email' });
+    expect(loom.notes.get(r.daily_note_id).body).toMatch(/## Parked\n\n- \*\*\d\d:\d\d\*\* check that email/);
+    expect(client.getInstructions()).toMatch(/just 10 minutes/);
+  });
+});
