@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import type { CompleteResult, DoneToday, Subtask, Task } from '@loom/core';
+import type { CompleteResult, Day, DoneToday, Subtask, Task } from '@loom/core';
 import { api, useAction, useApi } from '../lib/api';
 import { useHotkeys } from '../lib/hotkeys';
 import { useStartSession } from '../lib/session';
@@ -9,6 +9,8 @@ import { TaskForm } from '../components/TaskForm';
 import { TaskRow } from '../components/TaskRow';
 import { TaskSteps } from '../components/TaskSteps';
 import { RecallBox } from '../components/RecallBox';
+import { DoneList, doneCount } from '../components/DoneList';
+import { FirstThingCard, useStartFirstThing } from '../components/FirstThing';
 import { Priority } from './Sources';
 
 interface QueueItem {
@@ -44,6 +46,13 @@ export function TodayPage() {
   const upcomingIds = new Set((upcoming.data ?? []).map((t) => t.id));
   const someday = (others.data ?? []).filter((t) => !todayIds.has(t.id) && !upcomingIds.has(t.id) && !t.virtual);
   const done = useApi<DoneToday>('/done-today');
+  const day = useApi<Day>('/days/today');
+  const nextDay = useApi<Day>('/days/tomorrow');
+  const startFirst = useStartFirstThing(day.data);
+  // The first thing stays at the top until work has started; in the evening, a nudge to plan tomorrow.
+  const showFirst = !!day.data?.firstThing && !day.data.workStartAt;
+  const hour = new Date().getHours();
+  const evening = hour >= 17 || hour < 4;
   const tasks = [...todayList, ...(upcoming.data ?? []), ...someday];
 
   // Keyboard model: j/k walk tasks and, inside an expanded task, its steps. Selection is kept by id so it survives refetches.
@@ -118,6 +127,8 @@ export function TodayPage() {
       J: () => move(1),
       S: () => cur && !cur.task.virtual && setSingle.mutate(cur.task),
       t: () => startOn('starter'),
+      s: () => showFirst && startFirst?.(),
+      p: () => navigate({ to: '/plan' }),
       f: () => startOn('focus'),
       Backspace: () => {
         if (!cur?.step || !confirm(`Delete step “${cur.step.title}”?`)) return;
@@ -125,7 +136,7 @@ export function TodayPage() {
         removeStep.mutate(cur.step.id);
       },
     },
-    [flat, sel, cur, expanded],
+    [flat, sel, cur, expanded, showFirst, startFirst],
   );
 
   const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
@@ -154,8 +165,7 @@ export function TodayPage() {
       })}
     </ul>
   );
-  const doneCount =
-    (done.data?.tasks.length ?? 0) + (done.data?.subtasks.length ?? 0) + (done.data?.stepsDefined.length ?? 0) + (done.data?.sessions.length ?? 0);
+  const doneN = doneCount(done.data);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
@@ -186,38 +196,39 @@ export function TodayPage() {
             </div>
           </div>
         )}
+        {showFirst && (
+          <div className="mb-6">
+            <FirstThingCard day={day.data!} startKey="s" />
+            {day.data!.routine.some((i) => !i.checkedAt) && (
+              <Link to="/morning" className="mt-2 inline-block text-xs text-faint hover:text-accent">
+                Morning routine {day.data!.routine.filter((i) => i.checkedAt).length}/{day.data!.routine.length} · g w
+              </Link>
+            )}
+          </div>
+        )}
+        {evening && nextDay.data && (
+          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-panel px-4 py-3 text-sm">
+            {nextDay.data.firstThing ? (
+              <span className="min-w-0 flex-1 truncate text-muted">
+                Tomorrow starts with <b className="text-ink">{nextDay.data.firstThing.step?.title ?? nextDay.data.firstThing.task.title}</b>
+                {nextDay.data.targetStart && ` at ${nextDay.data.targetStart}`}
+              </span>
+            ) : (
+              <span className="min-w-0 flex-1 text-muted">Decide tomorrow's first thing tonight, so the morning has nothing to decide.</span>
+            )}
+            <Button size="sm" variant={nextDay.data.firstThing ? 'ghost' : 'primary'} onClick={() => navigate({ to: '/plan' })}>
+              {nextDay.data.firstThing ? 'Change' : 'Plan tomorrow'} <span className="font-mono text-xs opacity-70">p</span>
+            </Button>
+          </div>
+        )}
         {adding && <TaskForm onDone={() => setAdding(false)} />}
         {todayList.length ? rows(todayList) : <Empty>Nothing due today. Press <b>a</b> to add a task.</Empty>}
         {!!upcoming.data?.length && <div className="mt-8"><Section title="Upcoming">{rows(upcoming.data)}</Section></div>}
         {!!someday.length && <div className="mt-8"><Section title="Someday">{rows(someday)}</Section></div>}
       </div>
       <aside className="space-y-8">
-        <Section title={`Done today${doneCount ? ` · ${doneCount}` : ''}`}>
-          {doneCount ? (
-            <ul className="space-y-1 text-sm">
-              {done.data!.stepsDefined.map((d) => (
-                <li key={`d${d.taskId}`} className="flex gap-2"><span className="text-accent">✎</span><span className="min-w-0 truncate">Defined next steps: <span className="text-muted">{d.taskTitle}</span></span></li>
-              ))}
-              {done.data!.subtasks.map((d) => (
-                <li key={`s${d.id}`} className="flex gap-2"><span className="text-accent">✓</span><span className="min-w-0 truncate">{d.title} <span className="text-faint">· {d.taskTitle}</span></span></li>
-              ))}
-              {done.data!.sessions.map((d) => (
-                <li key={`f${d.id}`} className="flex gap-2">
-                  <span className="text-accent">▶</span>
-                  <span className="min-w-0 truncate">
-                    {d.kind === 'starter' ? 'Started' : 'Focus block'} · {Math.max(1, Math.round(d.minutes))} min
-                    {d.outcome === 'continued' && ', kept going'}
-                    {d.taskTitle && <span className="text-faint"> · {d.taskTitle}</span>}
-                  </span>
-                </li>
-              ))}
-              {done.data!.tasks.map((d) => (
-                <li key={`t${d.id}`} className="flex gap-2"><span className="text-accent">✔</span><span className="min-w-0 truncate font-medium">{d.title}</span></li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-faint">Nothing yet. Writing down a first step counts.</p>
-          )}
+        <Section title={`Done today${doneN ? ` · ${doneN}` : ''}`}>
+          <DoneList done={done.data} />
         </Section>
         <Section title="Reading queue" actions={<Link to="/sources" className="text-xs text-accent">all sources</Link>}>
           {queue.data?.length ? (

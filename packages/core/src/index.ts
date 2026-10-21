@@ -17,6 +17,7 @@ import { createStudy } from './services/study.ts';
 import { createTasks } from './services/tasks.ts';
 import { createSubtasks } from './services/subtasks.ts';
 import { createSessions } from './services/sessions.ts';
+import { createDays } from './services/days.ts';
 import { createGraph } from './services/graph.ts';
 import { createStats } from './services/stats.ts';
 import { createImporter } from './services/importer.ts';
@@ -27,7 +28,7 @@ import type { NoteDetail, SourceDetail } from './types.ts';
 export * from './types.ts';
 export * as schemas from './schemas.ts';
 export { Db } from './db.ts';
-export { NotFoundError, ValidationError, localDate, momentumDay, DAY_ROLLOVER_HOUR } from './util.ts';
+export { NotFoundError, ValidationError, localDate, momentumDay, DAY_ROLLOVER_HOUR, addDays, atLocalTime, resolveDay } from './util.ts';
 export { transformersEmbedder, type Embedder } from './services/embeddings.ts';
 export { parseWikilinks } from './services/wikilinks.ts';
 export { humanInterval } from './services/review.ts';
@@ -42,6 +43,7 @@ export { parseKindleClippings } from './importers/kindle.ts';
 export { REVIEW_TASK_ID, type CompleteResult } from './services/tasks.ts';
 export type { SubtaskResult, AddStepsResult } from './services/subtasks.ts';
 export { STALE_AFTER_MINUTES, type StartSession } from './services/sessions.ts';
+export { SHUTDOWN_HEADING, type PlanInput } from './services/days.ts';
 export type { RecallStatus, RecallComparison } from './services/processing.ts';
 
 export interface LoomOptions {
@@ -81,6 +83,7 @@ export function createLoom(opts: LoomOptions = {}) {
   const tasks = createTasks(ctx, review);
   const subtasks = createSubtasks(ctx, tasks);
   const sessions = createSessions(ctx, tasks, settings, notes);
+  const days = createDays(ctx, tasks, subtasks, notes);
   const graph = createGraph(ctx);
   const stats = createStats(ctx, cards, review);
   const importer = createImporter(ctx, sources, notes);
@@ -132,6 +135,7 @@ export function createLoom(opts: LoomOptions = {}) {
     tasks,
     subtasks,
     sessions,
+    days,
     graph,
     stats,
     importer,

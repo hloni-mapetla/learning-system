@@ -254,3 +254,48 @@ export interface SearchHit {
   score: number;
   matchedBy: ('text' | 'semantic')[];
 }
+
+export const ROUTINE_ACTIONS = ['wake', 'start_first_task'] as const;
+export type RoutineAction = (typeof ROUTINE_ACTIONS)[number];
+
+/** One line of the morning routine template. */
+export interface RoutineItem {
+  id: string;
+  title: string;
+  optional: boolean;
+  /** wake: ticking it logs the wake time. start_first_task: ticked by the first session of the day. */
+  action: RoutineAction | null;
+  sortOrder: number;
+}
+
+export const DEFAULT_MORNING_ROUTINE: { title: string; optional?: boolean; action?: RoutineAction }[] = [
+  { title: 'Stand up', action: 'wake' },
+  { title: 'Lights on / curtains open' },
+  { title: 'Exercise', optional: true },
+  { title: 'Short shower' },
+  { title: 'Simple breakfast' },
+  { title: 'Start first task', action: 'start_first_task' },
+];
+
+/** A day (rolling over at 4am): its morning, the plan made the evening before, and its shutdown. */
+export interface Day {
+  date: string;
+  wakeAt: string | null;
+  /** When work started: the first session of the day, or typed in. */
+  workStartAt: string | null;
+  workStartSessionId: string | null;
+  /** Minutes from waking to starting work, when both are known. */
+  wakeToWorkMinutes: number | null;
+  /** "HH:MM", optional. */
+  targetStart: string | null;
+  plannedAt: string | null;
+  plannedBy: Actor | null;
+  /** The one task to start with, and its first step: the planned step while it's open, else the task's next action. */
+  firstThing: { task: Task; step: Subtask | null } | null;
+  shutdownAt: string | null;
+  rating: number | null;
+  reflection: string | null;
+  routine: (RoutineItem & { checkedAt: string | null })[];
+}
+
+export const PLAN_STEP_PROMPT = "What's the first physical step, small enough to start half-awake?";

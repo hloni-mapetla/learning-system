@@ -14,6 +14,7 @@ import {
   type ItemType,
   type Loom,
   type Session,
+  type Day,
   type Subtask,
   type SubtaskResult,
   type Task,
@@ -1023,6 +1024,90 @@ export function registerTools(server: McpServer, loom: Loom) {
       kick();
       return json({ parked: text, daily_note: n.title, daily_note_id: n.id });
     },
+  );
+
+  // ================= days: evening plan and morning =================
+
+  const hm = (iso: string | null) => (iso ? new Date(iso).toTimeString().slice(0, 5) : null);
+  const dayOut = (d: Day) => ({
+    date: d.date,
+    woke_at: hm(d.wakeAt),
+    work_started_at: hm(d.workStartAt),
+    ...(d.wakeToWorkMinutes !== null ? { wake_to_work_minutes: d.wakeToWorkMinutes } : {}),
+    first_thing: d.firstThing
+      ? {
+          task: d.firstThing.task.title,
+          task_id: d.firstThing.task.id,
+          ...(d.firstThing.task.status !== 'open' ? { task_status: d.firstThing.task.status } : {}),
+          step: d.firstThing.step?.title ?? null,
+          step_id: d.firstThing.step?.id ?? null,
+        }
+      : null,
+    target_start: d.targetStart,
+    ...(d.plannedAt ? { planned_at: d.plannedAt, planned_by: d.plannedBy } : {}),
+    ...(d.shutdownAt ? { shutdown_at: hm(d.shutdownAt) } : {}),
+    routine: d.routine.map((i) => ({ id: i.id, item: i.title, ...(i.optional ? { optional: true } : {}), done: !!i.checkedAt })),
+  });
+  const daySpec = z.string().default('today').describe('today, tomorrow, yesterday or YYYY-MM-DD (the day rolls over at 4am)');
+
+  server.registerTool(
+    'get_day',
+    {
+      title: 'Get a day',
+      description:
+        "A day in Loom: when the user woke and started work, the first thing planned for it (task and concrete first step), the target " +
+        'start time, the morning routine with what is ticked, and the shutdown. date=tomorrow shows the plan made tonight. ' +
+        "include_done adds what got done that day (today only).",
+      inputSchema: { date: daySpec, include_done: z.boolean().default(false) },
+      annotations: READ,
+    },
+    async ({ date, include_done }) => {
+      const d = loom.days.get(date);
+      return json({ ...dayOut(d), ...(include_done && d.date === loom.days.get('today').date ? { done: loom.tasks.doneToday() } : {}) });
+    },
+  );
+
+  server.registerTool(
+    'set_first_task',
+    {
+      title: 'Set the first task for a day',
+      description:
+        'Decide the night before: set the ONE task to start with (default tomorrow) and its first physical step. Pass subtask_id for one of ' +
+        "its open steps, or step_title for a new first step in the user's words (authored_by user), or neither to use its next_action. " +
+        "A task with no steps needs step_title (or single_step). target_start is optional (\"08:30\"). Returns a soft hint if the step is vague. " +
+        'Set it only once the user has chosen. clear: true removes the plan.',
+      inputSchema: {
+        date: daySpec.default('tomorrow'),
+        task_id: z.string().optional(),
+        subtask_id: z.string().optional(),
+        step_title: z.string().optional(),
+        target_start: z.string().nullish(),
+        authored_by: z.enum(['user', 'claude']).default('user').describe('Who wrote step_title'),
+        clear: z.boolean().default(false),
+      },
+      annotations: WRITE,
+    },
+    async (a) => {
+      if (a.clear) return json(dayOut(loom.days.clearPlan(a.date)));
+      if (!a.task_id) throw new Error('task_id is required');
+      const { day, hint } = loom.days.plan(
+        a.date,
+        { taskId: a.task_id, subtaskId: a.subtask_id, stepTitle: a.step_title, targetStart: a.target_start, stepBy: a.authored_by },
+        'claude',
+      );
+      return json({ ...dayOut(day), ...(hint ? { hint } : {}) });
+    },
+  );
+
+  server.registerTool(
+    'log_wake',
+    {
+      title: 'Log the wake time',
+      description: 'Record when the user got up (default now; at = "07:10" to correct it, or clear: true). Also ticks "Stand up" in the routine.',
+      inputSchema: { date: daySpec, at: z.string().optional(), clear: z.boolean().default(false) },
+      annotations: WRITE,
+    },
+    async ({ date, at, clear }) => json(dayOut(loom.days.logWake(date, clear ? null : (at ?? new Date())))),
   );
 
   // ================= import & stats =================

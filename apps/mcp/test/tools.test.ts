@@ -348,3 +348,33 @@ describe('MCP sessions and parking lot', () => {
     expect(client.getInstructions()).toMatch(/just 10 minutes/);
   });
 });
+
+describe('MCP days', () => {
+  it('annotates day tools', async () => {
+    const { tools } = await client.listTools();
+    const ann = (n: string) => tools.find((t) => t.name === n)!.annotations!;
+    expect(ann('get_day').readOnlyHint).toBe(true);
+    for (const n of ['set_first_task', 'log_wake']) expect(ann(n).readOnlyHint).toBe(false);
+  });
+
+  it("plans tomorrow with the user's first step, attributed to Claude as planner", async () => {
+    const t = loom.tasks.create({ title: 'Thesis chapter 2', kind: 'write' });
+    await expect(call('set_first_task', { task_id: t.id })).rejects.toThrow(/first physical step/);
+    const d = await call('set_first_task', { task_id: t.id, step_title: 'Open draft.docx and reread 2.3', target_start: '08:30' });
+    expect(d).toMatchObject({ first_thing: { task: 'Thesis chapter 2', step: 'Open draft.docx and reread 2.3' }, target_start: '08:30', planned_by: 'claude' });
+    expect(d.date).toBe((await call('get_day', { date: 'tomorrow' })).date);
+    expect(loom.tasks.get(t.id).subtasks[0].createdBy).toBe('user');
+    const vague = await call('set_first_task', { task_id: t.id, step_title: 'work on it', authored_by: 'claude' });
+    expect(vague.hint).toMatch(/physical action/);
+    expect((await call('set_first_task', { clear: true })).first_thing).toBeNull();
+  });
+
+  it('logs the wake time and shows the routine', async () => {
+    const d = await call('log_wake', { at: '07:10' });
+    expect(d.woke_at).toBe('07:10');
+    expect(d.routine.find((i: any) => i.item === 'Stand up').done).toBe(true);
+    expect(d.routine.find((i: any) => i.item === 'Exercise').optional).toBe(true);
+    expect((await call('get_day', { include_done: true })).done).toBeDefined();
+    expect(client.getInstructions()).toMatch(/decide the night before/);
+  });
+});

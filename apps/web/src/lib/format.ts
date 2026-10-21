@@ -32,3 +32,10 @@ export function snippetHtml(s: string): string {
   const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc.replace(/\*\*(.+?)\*\*/g, '<mark>$1</mark>');
 }
+
+/** Local "HH:MM" for a timestamp. */
+export function hm(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}

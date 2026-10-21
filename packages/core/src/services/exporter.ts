@@ -21,8 +21,8 @@ export function createExporter(ctx: Ctx) {
   const { db } = ctx;
 
   function json(): Record<string, unknown> {
-    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'subtasks', 'task_events', 'sessions', 'exams', 'settings'];
-    const out: Record<string, unknown> = { format: 'loom-export', version: 3, schema: db.schemaVersion(), exportedAt: new Date().toISOString() };
+    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'subtasks', 'task_events', 'sessions', 'days', 'routines', 'routine_items', 'routine_checks', 'exams', 'settings'];
+    const out: Record<string, unknown> = { format: 'loom-export', version: 4, schema: db.schemaVersion(), exportedAt: new Date().toISOString() };
     for (const t of tables) out[t] = db.all(`SELECT * FROM ${t}${t === 'settings' ? ` WHERE key NOT IN ('owner_password', 'api_tokens')` : ''}`);
     return out;
   }
@@ -107,6 +107,21 @@ export function createExporter(ctx: Ctx) {
         }
       }
       writeFileSync(join(dir, '_tasks.md'), lines.join('\n') + '\n');
+      files++;
+    }
+    // Days: the plan, the morning and the reflection, one row per day.
+    const days = db.all(`SELECT d.*, t.title AS task_title, st.title AS step_title FROM days d
+      LEFT JOIN tasks t ON t.id = d.first_task_id LEFT JOIN subtasks st ON st.id = d.first_subtask_id ORDER BY d.date DESC`);
+    if (days.length) {
+      const hm = (iso: string | null) => (iso ? new Date(iso).toTimeString().slice(0, 5) : '');
+      const cell = (s: unknown) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+      const lines = ['# Days', '', '| Date | Woke | Started work | First task | First step | Target | Rating | Reflection |', '|---|---|---|---|---|---|---|---|'];
+      for (const d of days) {
+        lines.push(`| [[${d.date}]] | ${hm(d.wake_at)} | ${hm(d.work_start_at)} | ${cell(d.task_title)} | ${cell(d.step_title)} | ${d.target_start ?? ''} | ${d.rating ?? ''} | ${cell(d.reflection)} |`);
+      }
+      const items = db.all('SELECT * FROM routine_items ORDER BY sort_order');
+      if (items.length) lines.push('', '## Morning routine', '', ...items.map((i) => `- ${i.title}${i.optional ? ' _(optional)_' : ''}`));
+      writeFileSync(join(dir, '_days.md'), lines.join('\n') + '\n');
       files++;
     }
     return { files };

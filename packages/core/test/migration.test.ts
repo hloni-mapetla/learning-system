@@ -155,6 +155,27 @@ describe('schema v3 migration', () => {
     loom.close();
   });
 
+  it('v5 → v6 adds days and the routine without touching tasks, steps, events or sessions', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'loom-mig6-'));
+    const path = join(dir, 'loom.db');
+    const before = buildV2(path);
+    const v5 = new Db(path, { migrateTo: 5, backupDir: null });
+    v5.exec(`INSERT INTO subtasks (id, task_id, title, sort_order, created_at, updated_at) VALUES ('ST1', 'T1', 'Reread the summary page', 0, 'x', 'x');
+             INSERT INTO sessions (id, kind, task_id, subtask_id, planned_minutes, started_at, ended_at, outcome)
+               VALUES ('S1', 'starter', 'T1', 'ST1', 10, '2026-10-20T09:00:00.000Z', '2026-10-20T09:10:00.000Z', 'completed');`);
+    const tables = ['tasks', 'subtasks', 'task_events', 'sessions'];
+    const snap = tables.map((t) => v5.all(`SELECT * FROM ${t} ORDER BY id`));
+    v5.close();
+    const loom = createLoom({ dbPath: path, embedder: null, db: { backupDir: join(dir, 'backups') } });
+    expect(loom.db.migrationBackup).toMatch(new RegExp(`pre-migration-v5-to-v${LATEST}-`));
+    expect(tables.map((t) => loom.db.all(`SELECT * FROM ${t} ORDER BY id`))).toEqual(snap);
+    expect(loom.db.all(`SELECT ${CARD_COLS} FROM cards ORDER BY id`)).toEqual(before.cards);
+    expect(loom.db.all(`SELECT ${LOG_COLS} FROM review_logs ORDER BY id`)).toEqual(before.logs);
+    expect(loom.db.all('PRAGMA foreign_key_check')).toEqual([]);
+    expect(loom.days.plan('tomorrow', { taskId: 'T1' }).day.firstThing!.step!.id).toBe('ST1');
+    loom.close();
+  });
+
   it('does not back up a brand-new database', () => {
     const dir = mkdtempSync(join(tmpdir(), 'loom-new-'));
     const loom = createLoom({ dbPath: join(dir, 'loom.db'), embedder: null, db: { backupDir: join(dir, 'backups') } });

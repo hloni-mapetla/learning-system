@@ -4,6 +4,7 @@ import type { SettingsService } from './settings.ts';
 import type { Tasks } from './tasks.ts';
 import type { Notes } from './notes.ts';
 import { momentumDay, newId, NotFoundError, ValidationError } from '../util.ts';
+import { forgetWorkStart, recordWorkStart } from './days.ts';
 
 /** A session left running this long past its planned end (tab closed, laptop asleep) is closed as abandoned. */
 export const STALE_AFTER_MINUTES = 120;
@@ -114,7 +115,10 @@ export function createSessions(ctx: Ctx, tasks: Tasks, settings: SettingsService
       [id, input.kind, taskId, input.subtaskId ?? null, task?.title ?? null, subtaskTitle, minutes, breakMinutes, now.toISOString(),
         input.continuedFrom ?? null, by],
     );
-    return get(id);
+    const session = get(id);
+    // The first session of the day is when work started.
+    recordWorkStart(db, session);
+    return session;
   }
 
   /**
@@ -128,7 +132,10 @@ export function createSessions(ctx: Ctx, tasks: Tasks, settings: SettingsService
     const timeUp = now.getTime() >= Date.parse(cur.endsAt);
     const outcome: SessionOutcome = opts.outcome ?? (timeUp ? 'completed' : 'stopped');
     const at = timeUp ? cur.endsAt : now.toISOString();
-    db.run('UPDATE sessions SET ended_at = ?, outcome = ? WHERE id = ?', [at, outcome, id]);
+    db.tx(() => {
+      db.run('UPDATE sessions SET ended_at = ?, outcome = ? WHERE id = ?', [at, outcome, id]);
+      if (outcome === 'abandoned') forgetWorkStart(db, id);
+    });
     return get(id);
   }
 

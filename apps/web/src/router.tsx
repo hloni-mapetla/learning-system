@@ -11,6 +11,8 @@ import { TodayPage } from './pages/Today';
 import { ImportPage } from './pages/Import';
 import { DailyPage } from './pages/Daily';
 import { FocusPage } from './pages/Focus';
+import { MorningPage } from './pages/Morning';
+import { PlanPage } from './pages/Plan';
 
 const root = createRootRoute({
   component: Layout,
@@ -29,6 +31,8 @@ const routeTree = root.addChildren([
   r('/notes', NotesPage),
   r('/daily', DailyPage),
   r('/focus', FocusPage),
+  r('/morning', MorningPage),
+  r('/plan', PlanPage),
   r('/notes/$id', NoteDetailPage),
   r('/search', SearchPage),
   r('/review', ReviewPage),

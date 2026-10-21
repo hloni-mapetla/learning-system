@@ -178,6 +178,50 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
   r.post('/sessions/:id/keep-going', (req, res) => res.status(201).json(loom.sessions.keepGoing(req.params.id)));
   r.post('/park', (req, res) => res.json(loom.sessions.park(z.object({ text: z.string().min(1) }).parse(req.body).text)));
 
+  // ---- days: the evening plan, the morning and the routine (:date = today | tomorrow | yesterday | YYYY-MM-DD) ----
+  const hhmm = z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, 'Expected a time like 07:30');
+  r.get('/days/:date', (req, res) => res.json(loom.days.get(req.params.date)));
+  r.patch('/days/:date', (req, res) => {
+    const b = z.object({ wakeAt: hhmm.nullable(), workStartAt: hhmm.nullable(), targetStart: hhmm.nullable() }).partial().parse(req.body);
+    const d = req.params.date;
+    if (b.wakeAt !== undefined) loom.days.logWake(d, b.wakeAt);
+    if (b.workStartAt !== undefined) loom.days.setWorkStart(d, b.workStartAt);
+    if (b.targetStart !== undefined) loom.days.setTargetStart(d, b.targetStart);
+    res.json(loom.days.get(d));
+  });
+  r.post('/days/:date/wake', (req, res) => {
+    const { at } = z.object({ at: hhmm.optional() }).parse(req.body ?? {});
+    res.json(loom.days.logWake(req.params.date, at ?? new Date()));
+  });
+  r.put('/days/:date/plan', (req, res) => {
+    const b = z
+      .object({ taskId: z.string(), subtaskId: z.string().nullish(), stepTitle: z.string().nullish(), targetStart: hhmm.nullish() })
+      .parse(req.body);
+    res.json(loom.days.plan(req.params.date, b));
+  });
+  r.delete('/days/:date/plan', (req, res) => res.json(loom.days.clearPlan(req.params.date)));
+  r.post('/days/:date/shutdown', (req, res) => {
+    const b = z.object({ note: z.string().optional(), undo: z.boolean().optional() }).parse(req.body ?? {});
+    res.json(loom.days.shutdown(req.params.date, b));
+  });
+  r.post('/days/:date/routine/:itemId', (req, res) => {
+    const { checked } = z.object({ checked: z.boolean() }).parse(req.body);
+    res.json(loom.days.check(req.params.date, req.params.itemId, checked));
+  });
+  r.get('/routine', (_req, res) => res.json(loom.days.routine()));
+  r.post('/routine', (req, res) => {
+    const b = z.object({ title: z.string().trim().min(1), optional: z.boolean().optional(), position: z.number().int().min(0).optional() }).parse(req.body);
+    res.status(201).json(loom.days.addItem(b.title, b));
+  });
+  r.patch('/routine/:id', (req, res) =>
+    res.json(loom.days.updateItem(req.params.id, z.object({ title: z.string().trim().min(1), optional: z.boolean() }).partial().parse(req.body))),
+  );
+  r.post('/routine/:id/move', (req, res) => res.json(loom.days.moveItem(req.params.id, z.object({ delta: z.number().int() }).parse(req.body).delta)));
+  r.delete('/routine/:id', (req, res) => {
+    loom.days.removeItem(req.params.id);
+    res.status(204).end();
+  });
+
   // ---- subtasks (steps) ----
   r.post('/tasks/:id/subtasks', (req, res) => {
     const b = schemas.SubtaskCreate.partial({ title: true }).extend({ titles: z.array(z.string()).optional() }).parse(req.body);

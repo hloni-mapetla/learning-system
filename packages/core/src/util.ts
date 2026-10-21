@@ -64,3 +64,30 @@ export class NotFoundError extends Error {
 export class ValidationError extends Error {
   readonly status = 400;
 }
+
+/** Add days to a YYYY-MM-DD date. */
+export function addDays(date: string, n: number): string {
+  const d = new Date(`${date}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return localDate(d);
+}
+
+/** "HH:MM" on a momentum date as a Date; times before the rollover hour belong to the next calendar morning. */
+export function atLocalTime(date: string, hhmm: string): Date {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(hhmm.trim());
+  if (!m) throw new ValidationError(`Expected a time like 07:30, got "${hhmm}"`);
+  const d = new Date(`${date}T00:00:00`);
+  d.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  if (Number(m[1]) < DAY_ROLLOVER_HOUR) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+/** "today", "tomorrow", "yesterday" or YYYY-MM-DD, as a momentum date. */
+export function resolveDay(spec: string | undefined, now: Date = new Date()): string {
+  const today = momentumDay(now).date;
+  if (!spec || spec === 'today') return today;
+  if (spec === 'tomorrow') return addDays(today, 1);
+  if (spec === 'yesterday') return addDays(today, -1);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(spec)) throw new ValidationError(`Expected today, tomorrow or YYYY-MM-DD, got "${spec}"`);
+  return spec;
+}
