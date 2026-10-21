@@ -26,6 +26,19 @@ export function startOfLocalDay(d: Date = new Date()): Date {
   return s;
 }
 
+/** Momentum features (done list, evening planning) roll the day over at this hour, so 00:30 still counts as "tonight". */
+export const DAY_ROLLOVER_HOUR = 4;
+
+/** The momentum day containing `now`: its date and [start, end) bounds, rolling over at DAY_ROLLOVER_HOUR. */
+export function momentumDay(now: Date = new Date()): { date: string; start: Date; end: Date } {
+  const start = new Date(now);
+  if (start.getHours() < DAY_ROLLOVER_HOUR) start.setDate(start.getDate() - 1);
+  start.setHours(DAY_ROLLOVER_HOUR, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { date: localDate(start), start, end };
+}
+
 export function parseJsonArray(s: unknown): string[] {
   if (typeof s !== 'string') return [];
   try {

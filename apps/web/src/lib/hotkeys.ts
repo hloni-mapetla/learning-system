@@ -11,7 +11,7 @@ type Handler = (e: KeyboardEvent) => void;
 /**
  * Register keyboard shortcuts. Keys are matched on `event.key` (so "C" is shift+c and "?" is shift+/):
  * "mod+k" (⌘/Ctrl), plain keys like "j" or "Enter", and two-key sequences like "g n".
- * Plain keys and sequences are ignored while typing in an input/editor; "mod+" combos always fire.
+ * "alt+ArrowUp" (⌥). Plain keys, alt combos and sequences are ignored while typing in an input/editor; "mod+" combos always fire.
  */
 export function useHotkeys(map: Record<string, Handler>, deps: unknown[] = []) {
   useEffect(() => {
@@ -29,7 +29,11 @@ export function useHotkeys(map: Record<string, Handler>, deps: unknown[] = []) {
         fire(`mod+${e.key.toLowerCase()}`, e);
         return;
       }
-      if (isTyping(e) || e.altKey) return;
+      if (isTyping(e)) return;
+      if (e.altKey) {
+        fire(`alt+${e.key}`, e);
+        return;
+      }
       if (prefix) {
         const seq = `${prefix} ${e.key}`;
         prefix = null;

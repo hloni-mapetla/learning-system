@@ -21,8 +21,8 @@ export function createExporter(ctx: Ctx) {
   const { db } = ctx;
 
   function json(): Record<string, unknown> {
-    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'exams', 'settings'];
-    const out: Record<string, unknown> = { format: 'loom-export', version: 2, schema: db.schemaVersion(), exportedAt: new Date().toISOString() };
+    const tables = ['sources', 'notes', 'links', 'tags', 'item_tags', 'cards', 'card_refs', 'review_logs', 'tasks', 'subtasks', 'task_events', 'exams', 'settings'];
+    const out: Record<string, unknown> = { format: 'loom-export', version: 3, schema: db.schemaVersion(), exportedAt: new Date().toISOString() };
     for (const t of tables) out[t] = db.all(`SELECT * FROM ${t}${t === 'settings' ? ` WHERE key NOT IN ('owner_password', 'api_tokens')` : ''}`);
     return out;
   }
@@ -91,6 +91,22 @@ export function createExporter(ctx: Ctx) {
     }
     for (const [folder, entries] of byFolder) {
       writeFileSync(join(dir, folder, '_cards.md'), `# Cards\n\n${entries.join('\n\n---\n\n')}\n`);
+      files++;
+    }
+    // Tasks as a checklist, with their steps nested under them.
+    const tasks = db.all(`SELECT t.*, s.title AS source_title FROM tasks t LEFT JOIN sources s ON s.id = t.source_id
+      WHERE t.status <> 'cancelled' ORDER BY t.status = 'done', t.due_date IS NULL, t.due_date, t.priority, t.sort_order`);
+    if (tasks.length) {
+      const lines = ['# Tasks', ''];
+      for (const t of tasks) {
+        const meta = [t.kind !== 'todo' && t.kind, t.due_date && `due ${t.due_date}`, `P${t.priority}`, t.source_title && `[[${t.source_title}]]`,
+          t.single_step && 'single step', t.created_by !== 'user' && `by ${t.created_by}`].filter(Boolean).join(' · ');
+        lines.push(`- [${t.status === 'done' ? 'x' : ' '}] ${t.title} _(${meta})_`);
+        for (const st of db.all('SELECT * FROM subtasks WHERE task_id = ? ORDER BY sort_order, created_at', [t.id])) {
+          lines.push(`    - [${st.completed_at ? 'x' : ' '}] ${st.title}${st.created_by !== 'user' ? ` _(by ${st.created_by})_` : ''}`);
+        }
+      }
+      writeFileSync(join(dir, '_tasks.md'), lines.join('\n') + '\n');
       files++;
     }
     return { files };

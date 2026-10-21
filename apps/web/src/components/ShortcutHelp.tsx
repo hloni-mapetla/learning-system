@@ -27,7 +27,19 @@ const GROUPS: [string, [string, string][]][] = [
       ['j / k', 'Move selection'],
       ['↵', 'Open selected'],
       ['a', 'Add (task / source / highlight)'],
-      ['x', 'Complete task (today)'],
+    ],
+  ],
+  [
+    'Today: tasks & steps',
+    [
+      ['↵', 'Open / close a task’s steps'],
+      ['x', 'Complete task (or tick step)'],
+      ['space', 'Tick / untick step'],
+      ['n', 'Add a step (first step if none)'],
+      ['e', 'Edit step'],
+      ['⌥↑ / ⌥↓', 'Move step up / down (or K / J)'],
+      ['⌫', 'Delete step'],
+      ['S', 'Mark task single-step'],
     ],
   ],
   [
@@ -70,9 +82,9 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
   useHotkeys({ Escape: onClose }, []);
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4" onClick={onClose}>
-      <div className="w-full max-w-2xl rounded-xl border border-line bg-panel p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-line bg-panel p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <h2 className="mb-4 text-lg font-semibold">Keyboard shortcuts</h2>
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {GROUPS.map(([g, items]) => (
             <div key={g}>
               <h3 className="mb-2 text-xs font-semibold tracking-wide text-faint uppercase">{g}</h3>

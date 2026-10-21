@@ -22,6 +22,24 @@ export const FEELS_HARDER_NOTE =
   'The first 2–3 weeks of recall-first will probably feel harder and less productive than rereading highlights. ' +
   'That feeling is the effort that makes it stick: fluent rereading feels better and works worse.';
 
+/** Task kinds flagged "needs a first step" when they have no steps. Read/process tasks have their own flow. */
+export const STEP_KINDS = ['todo', 'write', 'summarize'] as const;
+
+export const FIRST_STEP_PROMPT = "What's the very first physical step?";
+export const STARTABILITY_HINT = 'Could you make this a physical action you could start in 2 minutes?';
+const VAGUE_STARTS = /^(work on|work at|do|finish|handle|deal with|sort out|look into|think about|figure out|continue|progress|start on|get on with|tackle|try to|wrap up)\b/i;
+
+/**
+ * A soft hint when a step looks vague (very short, or "work on…", "finish…", "deal with…"). Never blocking.
+ * Returns null when the step reads like something you could start.
+ */
+export function startabilityHint(step: string): string | null {
+  const s = step.trim();
+  if (!s) return null;
+  if (VAGUE_STARTS.test(s) || s.split(/\s+/).length < 2 || s.length < 8) return STARTABILITY_HINT;
+  return null;
+}
+
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 export type SourceStatus = (typeof SOURCE_STATUSES)[number];
 export type NoteKind = (typeof NOTE_KINDS)[number];
@@ -155,8 +173,37 @@ export interface Task {
   completedAt: string | null;
   sortOrder: number;
   createdAt: string;
+  createdBy: Actor;
+  /** Too small to need steps: never flagged "needs a first step". */
+  singleStep: boolean;
+  /** Ordered steps (one level). */
+  subtasks: Subtask[];
+  progress: { done: number; total: number };
+  /** The first incomplete step: the concrete thing to do now. */
+  nextAction: Subtask | null;
+  /** Open, no steps yet, and not single-step: defining the first step is the task. */
+  needsFirstStep: boolean;
   /** True for computed tasks (e.g. today's reviews) that are not stored rows. */
   virtual?: boolean;
+}
+
+export interface Subtask {
+  id: string;
+  taskId: string;
+  title: string;
+  done: boolean;
+  completedAt: string | null;
+  sortOrder: number;
+  createdBy: Actor;
+  createdAt: string;
+}
+
+/** What got done in a day: completed tasks and steps, and tasks whose steps were defined. */
+export interface DoneToday {
+  date: string;
+  tasks: { id: string; title: string; at: string }[];
+  subtasks: { id: string; title: string; taskId: string; taskTitle: string; at: string }[];
+  stepsDefined: { taskId: string; taskTitle: string; at: string }[];
 }
 
 export interface SearchHit {

@@ -71,7 +71,8 @@ Open http://127.0.0.1:4317. The UI is built for the keyboard; press <kbd>?</kbd>
 | <kbd>c</kbd> | New note |
 | <kbd>q</kbd> | Quick capture a thought from anywhere: <kbd>⌘↵</kbd> saves a standalone note, <kbd>⌘⇧↵</kbd> adds it to today's daily note |
 | <kbd>g</kbd> <kbd>d</kbd>, then <kbd>[</kbd> / <kbd>]</kbd> | Today's daily note; previous / next day |
-| <kbd>j</kbd> <kbd>k</kbd> <kbd>↵</kbd> | Move and open in any list; <kbd>x</kbd> completes a task on Today |
+| <kbd>j</kbd> <kbd>k</kbd> <kbd>↵</kbd> | Move and open in any list |
+| On Today: <kbd>↵</kbd> <kbd>x</kbd> <kbd>space</kbd> <kbd>n</kbd> <kbd>e</kbd> <kbd>⌥↑</kbd>/<kbd>⌥↓</kbd> <kbd>⌫</kbd> <kbd>S</kbd> | Open a task's steps, complete the task (or tick the selected step), tick a step, add a step, edit it, move it, delete it, mark the task single-step |
 | <kbd>a</kbd> | Add: a task (Today), a source (Sources), a highlight (on a source) |
 | <kbd>e</kbd> / <kbd>esc</kbd> | Edit / stop editing a note. `[[` autocompletes links; select text and press <kbd>⌘⇧C</kbd> to make a cloze |
 | <kbd>C</kbd> / <kbd>L</kbd> | On a note: new card / new typed link |
@@ -80,7 +81,8 @@ Open http://127.0.0.1:4317. The UI is built for the keyboard; press <kbd>?</kbd>
 
 The main pieces:
 
-- **Today:** a computed "Review N due cards" task, overdue and today's tasks, upcoming and someday tasks, and your reading queue ordered by priority. Completing a *read* task asks you what you remember (a blank-page recall) before you look at any highlights, or reminds you tomorrow.
+- **Today:** a computed "Review N due cards" task, overdue and today's tasks, upcoming and someday tasks, what you've done today, and your reading queue ordered by priority. Completing a *read* task asks you what you remember (a blank-page recall) before you look at any highlights, or reminds you tomorrow.
+- **Steps and next actions:** any task can have an ordered list of steps. Under each task Today shows its **next action** (the first unfinished step) and progress such as `2/5`, so what you see is the concrete thing to do, not the vague goal. A to-do, writing or summary task with no steps asks *"What's the very first physical step?"* with an input right there; writing it counts as progress in *Done today*. Mark tiny tasks *single step* (<kbd>S</kbd>) to drop the prompt. A step that looks vague ("work on…", "finish…", "deal with…") gets a gentle hint to make it something you could start in 2 minutes; it never blocks saving. Finishing every step asks whether to complete the task rather than doing it for you.
 - **Sources:** books, articles, papers, videos, lectures and podcasts, each with status (queued, reading, done, abandoned), priority 1–5, tags, highlights and notes (ordered by page or location), tasks, and possible connections.
 - **Recall first:** a source with highlights and no recall opens with a *Recall first* box, and its highlights stay hidden until you've written what you remember (or pressed <kbd>s</kbd> to skip). After the recall you draft the key ideas yourself as concept and claim notes. Each source records how it was processed (*recall first* or *highlights first*) so you can later compare which works better for you. Expect the first 2–3 weeks to feel harder than rereading; that's the effort doing its job.
 - **Authorship:** notes and sources record who wrote them. Notes Claude drafted are marked *by Claude* and imported quotes *imported*; your own work is unmarked. You can correct it on a note's properties.
@@ -158,6 +160,7 @@ Create a Project (e.g. "Study"), enable the Loom connector, and paste [docs/clau
 | **Daily review** | Fetches due cards and asks one at a time without revealing the answer. It asks a follow-up when your answer is shaky, grades against the card and its rubric, maps the result to an FSRS rating (*again, hard, good, easy*) and records it with a one-line assessment. It undoes a rating if you dispute it, and finishes with a summary of your weak spots. |
 | **Exam prep on X** | Uses `get_study_context` to gather your notes, sources, weakest cards and recent failures on the topic. It asks about 60% recall and 40% synthesis questions, probes with Socratic follow-ups, records reviews for existing cards, and proposes new cards for the gaps. |
 | **Connect** | Takes a note, runs `find_connections` (unlinked semantic neighbours from *other* sources), judges each candidate, and proposes typed links with rationales plus synthesis cards. It saves only what you approve. |
+| **Break down a task** | You name a task and draft its first few steps yourself. Claude critiques each for concreteness ("could you start it in 2 minutes?") and size, suggests the smallest possible first step, and saves only the steps you approve. If you can't name any step, the first step becomes defining what done looks like. Say "suggest for me" for Claude's draft, marked as Claude's. |
 | **Process reading** | Generation-first. It imports any highlights silently, then asks what you remember *before* showing them, and saves your recall word for word. It compares the recall with the highlights and tells you what you missed and got wrong, sometimes asking you to retrieve a miss from a cue first. Then **you** draft the 3–7 concept and claim notes and Claude critiques them for accuracy, one idea per note, the missing *why* and connections (you name connections first). Cards follow, with your misses first. Say "suggest for me" if you want Claude to draft, and those notes are marked as Claude's. |
 
 Ratings use this rubric: **again** = not recalled or wrong (or only after the answer was given); **hard** = core idea with a significant gap, or needed a hint; **good** = correct and essentially complete; **easy** = instant, complete and confident. When a rating is borderline, Claude chooses the lower one.
@@ -172,15 +175,16 @@ Ratings use this rubric: **again** = not recalled or wrong (or only after the an
 | Read | `search_knowledge(query, semantic=true)`, `list_notes(scope=standalone\|sourced, since?)`, `get_note`, `get_source`, `list_sources`, `get_related(id)`, `find_connections(id \| topic)`, `get_study_context(topic)`, `list_tags` |
 | Write | `create_source`, `update_source`, `create_note(authored_by)` (omit `source_id` for a standalone note), `append_to_daily_note(text)`, `update_note`, `create_card`, `update_card`, `create_link`, `import_highlights` |
 | Recall first | `start_recall(source_id)`, `save_recall(source_id, text)`, `skip_recall`, `get_recall_review(source_id)` (recall next to highlights, with a similarity hint per highlight) |
-| Tasks | `list_tasks(view)` (today, upcoming, all_open, done, reading_queue), `create_task`, `complete_task`, `update_task` |
+| Tasks | `list_tasks(view)` (today, upcoming, all_open, done, reading_queue; each task with its steps, progress, `next_action` and `needs_first_step`), `get_task`, `create_task(authored_by, single_step)`, `complete_task`, `update_task` |
+| Steps | `add_subtask(task_id, steps[], position?, authored_by)`, `update_subtask`, `complete_subtask(undo?)`, `reorder_subtasks`, `delete_subtask` |
 
-Prompts: `daily_review`, `exam_prep`, `connect`, `process_reading`.
+Prompts: `daily_review`, `exam_prep`, `connect`, `process_reading`, `break_down`.
 
 Notes on behavior:
 - Read tools carry `readOnlyHint`; write tools are annotated as writes, so clients can ask before running them.
 - Topics can be a tag (`psychology` also matches `psychology/heuristics`), a source title, or free text. Free text is matched semantically.
 - Claude follows a "you generate first" rule: it asks for your recall, draft or guess before offering its own, and won't show a source's highlights until you've done a recall. This is in the server instructions, so it applies even when you just say "process reading" in a chat without the prompt.
-- Cards, notes and sources Claude creates are marked `created_by: claude` (`create_note` takes `authored_by: "user"` only when saving your own words verbatim). Reviews it grades are logged with `grader: claude` and its assessment. Claude's cards and notes are labelled in the UI; review history is in the JSON export.
+- Cards, notes, sources, tasks and steps Claude creates are marked `created_by: claude` (`create_note`, `create_task` and `add_subtask` take `authored_by: "user"` only when saving your own words verbatim). Claude never completes a task just because its steps are done; it asks. Moving a dated task is logged, so a weekly review can spot tasks that keep slipping. Reviews it grades are logged with `grader: claude` and its assessment. Claude's cards and notes are labelled in the UI; review history is in the JSON export.
 
 ---
 
@@ -195,7 +199,7 @@ Everything lives in **one SQLite file**, `~/.loom/loom.db` (WAL mode, so the web
   Put `--dir` on a synced or external drive (iCloud Drive, Dropbox, a USB disk) for off-machine copies.
 - **Upgrades:** when a new Loom version changes the database schema, Loom first copies the database to `~/.loom/backups/pre-migration-v<old>-to-v<new>-<timestamp>.db` and prints that path. The upgrade runs in one transaction and never rewrites cards' scheduling or review history.
 - **Restore:** stop Loom, then `cp ~/.loom/backups/loom-<timestamp>.db ~/.loom/loom.db`.
-- **Export:** `loom export --json loom.json --md ~/Documents/loom-vault`. The JSON contains every table (review history included; the password hash and tokens are excluded). The vault has one folder per source, YAML frontmatter, intact `[[wikilinks]]`, typed links as lists and cards in `_cards.md`, and it opens directly in Obsidian.
+- **Export:** `loom export --json loom.json --md ~/Documents/loom-vault`. The JSON contains every table (review history included; the password hash and tokens are excluded). The vault has one folder per source, YAML frontmatter, intact `[[wikilinks]]`, typed links as lists, cards in `_cards.md` and tasks with their steps as a checklist in `_tasks.md`, and it opens directly in Obsidian.
 
 ---
 
@@ -244,4 +248,5 @@ The REST routes and MCP tools are both thin wrappers over `@loom/core`. To add a
 - **Why React + Vite:** CodeMirror 6 (the best Markdown editor for the web, with autocomplete hooks for `[[`), Cytoscape for graphs, and TanStack Query for cache invalidation when Claude writes over MCP. The ecosystem fit outweighed the smaller bundles of Svelte or Solid. Heavy pieces (the editor and the graph) load lazily.
 - **Concepts and claims are notes with a `kind`**, so they get wikilinks, search, embeddings and the graph without separate code paths.
 - **Generation first:** Loom is shaped around how learning works (retrieval, spacing, elaboration, interleaving, and generating before checking). [docs/learning-audit.md](docs/learning-audit.md) maps each principle to the code and lays out the phased changes. Recall-first processing (Phase A) is in; interleaved review, why/how cards and *Explain it*, prerequisite awareness, spaced exam plans, confidence calibration, production stats and the recall-first experiment follow.
+- **Momentum:** the to-do list is shaped to make hard work startable: a concrete next action instead of a vague goal, defining a step counts as progress, and Claude has you draft steps before it suggests any. Steps are a separate table (one level), and a task event log records step definitions, completions and reschedules. Starter sessions and focus blocks, evening planning and mornings, a daily minimum and reflection stats follow in later phases. Days for these features roll over at 4am, so 00:30 still counts as tonight.
 - **Safe schema upgrades:** migrations are plain SQL run with foreign keys off (so rebuilding a table can't cascade-delete cards or review history), checked with `foreign_key_check` before commit, and preceded by an automatic backup.

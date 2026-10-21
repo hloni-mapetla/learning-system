@@ -1,10 +1,55 @@
 import type { Ctx } from './context.ts';
-import type { Task } from '../types.ts';
+import { STEP_KINDS, type Actor, type DoneToday, type Subtask, type Task } from '../types.ts';
 import type { TaskCreate, TaskPatch } from '../schemas.ts';
 import type { Review } from './review.ts';
-import { localDate, newId, nowIso, NotFoundError } from '../util.ts';
+import type { Db } from '../db.ts';
+import { localDate, momentumDay, newId, nowIso, NotFoundError } from '../util.ts';
 
-function toTask(r: any): Task {
+export type TaskEventType = 'steps_defined' | 'subtask_done' | 'subtask_undone' | 'task_done' | 'task_reopened' | 'rescheduled';
+
+/** Append to the task event log (progress, the done list, and how often a task gets moved). */
+export function logTaskEvent(
+  db: Db,
+  e: { taskId: string; type: TaskEventType; subtaskId?: string | null; detail?: unknown; by?: Actor; at?: string },
+): void {
+  db.run(`INSERT INTO task_events (id, task_id, subtask_id, type, detail, created_by, at) VALUES (?, ?, ?, ?, ?, ?, ?)`, [
+    newId(),
+    e.taskId,
+    e.subtaskId ?? null,
+    e.type,
+    e.detail === undefined ? null : JSON.stringify(e.detail),
+    e.by ?? 'user',
+    e.at ?? nowIso(),
+  ]);
+}
+
+export function toSubtask(r: any): Subtask {
+  return {
+    id: r.id,
+    taskId: r.task_id,
+    title: r.title,
+    done: !!r.completed_at,
+    completedAt: r.completed_at,
+    sortOrder: r.sort_order,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+  };
+}
+
+/** Attach steps, progress, next action and the "needs a first step" flag. */
+function withSteps(t: Omit<Task, 'subtasks' | 'progress' | 'nextAction' | 'needsFirstStep'>, steps: Subtask[]): Task {
+  const done = steps.filter((x) => x.done).length;
+  return {
+    ...t,
+    subtasks: steps,
+    progress: { done, total: steps.length },
+    nextAction: steps.find((x) => !x.done) ?? null,
+    needsFirstStep:
+      t.status === 'open' && !t.virtual && !t.singleStep && !steps.length && (STEP_KINDS as readonly string[]).includes(t.kind),
+  };
+}
+
+function toTask(r: any) {
   return {
     id: r.id,
     title: r.title,
@@ -19,6 +64,8 @@ function toTask(r: any): Task {
     completedAt: r.completed_at,
     sortOrder: r.sort_order,
     createdAt: r.created_at,
+    createdBy: r.created_by as Actor,
+    singleStep: !!r.single_step,
   };
 }
 
@@ -41,52 +88,76 @@ export interface TaskListOpts {
 export function createTasks(ctx: Ctx, review: Review) {
   const { db } = ctx;
 
+  /** Rows → tasks, loading every task's steps in one query. */
+  function hydrate(rows: any[]): Task[] {
+    if (!rows.length) return [];
+    const steps = new Map<string, Subtask[]>();
+    for (const r of db.all(`SELECT * FROM subtasks WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY sort_order, created_at`, [
+      JSON.stringify(rows.map((r) => r.id)),
+    ])) {
+      const st = toSubtask(r);
+      steps.set(st.taskId, [...(steps.get(st.taskId) ?? []), st]);
+    }
+    return rows.map((r) => withSteps(toTask(r), steps.get(r.id) ?? []));
+  }
+
   function get(id: string): Task {
     const r = db.get(`${SELECT} WHERE t.id = ?`, [id]);
     if (!r) throw new NotFoundError('task', id);
-    return toTask(r);
+    return hydrate([r])[0];
   }
 
-  function create(input: TaskCreate): Task {
+  function create(input: TaskCreate, createdBy: Actor = 'user'): Task {
     const id = newId();
     const now = nowIso();
     const max = db.get<{ m: number | null }>(`SELECT max(sort_order) AS m FROM tasks WHERE status = 'open'`)!.m ?? 0;
     db.run(
-      `INSERT INTO tasks (id, title, kind, details, source_id, note_id, due_date, priority, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, title, kind, details, source_id, note_id, due_date, priority, sort_order, single_step, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, input.title.trim(), input.kind ?? 'todo', input.details ?? '', input.sourceId ?? null, input.noteId ?? null,
-        input.dueDate ?? null, input.priority ?? 3, max + 1, now, now],
+        input.dueDate ?? null, input.priority ?? 3, max + 1, input.singleStep ? 1 : 0, createdBy, now, now],
     );
     return get(id);
   }
 
-  function update(id: string, patch: TaskPatch): Task {
+  function update(id: string, patch: TaskPatch, by: Actor = 'user'): Task {
     const cur = get(id);
     const status = patch.status ?? cur.status;
-    db.run(
-      `UPDATE tasks SET title = ?, kind = ?, details = ?, source_id = ?, note_id = ?, due_date = ?, priority = ?, status = ?,
-         completed_at = ?, sort_order = ?, updated_at = ? WHERE id = ?`,
-      [
-        patch.title ?? cur.title,
-        patch.kind ?? cur.kind,
-        patch.details ?? cur.details,
-        patch.sourceId !== undefined ? patch.sourceId : cur.sourceId,
-        patch.noteId !== undefined ? patch.noteId : cur.noteId,
-        patch.dueDate !== undefined ? patch.dueDate : cur.dueDate,
-        patch.priority ?? cur.priority,
-        status,
-        status === 'done' ? (cur.completedAt ?? nowIso()) : null,
-        patch.sortOrder ?? cur.sortOrder,
-        nowIso(),
-        id,
-      ],
-    );
+    const dueDate = patch.dueDate !== undefined ? patch.dueDate : cur.dueDate;
+    db.tx(() => {
+      // Moving a dated task (to another date, or off the calendar) is what "keeps getting moved" counts.
+      if (cur.dueDate && dueDate !== cur.dueDate && cur.status === 'open') {
+        logTaskEvent(db, { taskId: id, type: 'rescheduled', detail: { from: cur.dueDate, to: dueDate }, by });
+      }
+      if (status !== cur.status && (status === 'done' || cur.status === 'done')) {
+        logTaskEvent(db, { taskId: id, type: status === 'done' ? 'task_done' : 'task_reopened', by });
+      }
+      db.run(
+        `UPDATE tasks SET title = ?, kind = ?, details = ?, source_id = ?, note_id = ?, due_date = ?, priority = ?, status = ?,
+           completed_at = ?, sort_order = ?, single_step = ?, updated_at = ? WHERE id = ?`,
+        [
+          patch.title ?? cur.title,
+          patch.kind ?? cur.kind,
+          patch.details ?? cur.details,
+          patch.sourceId !== undefined ? patch.sourceId : cur.sourceId,
+          patch.noteId !== undefined ? patch.noteId : cur.noteId,
+          dueDate,
+          patch.priority ?? cur.priority,
+          status,
+          status === 'done' ? (cur.completedAt ?? nowIso()) : null,
+          patch.sortOrder ?? cur.sortOrder,
+          (patch.singleStep ?? cur.singleStep) ? 1 : 0,
+          nowIso(),
+          id,
+        ],
+      );
+    });
     return get(id);
   }
 
   /** Mark done. Finishing a reading task prompts a blank-page recall and moves the source along. */
-  function complete(id: string): CompleteResult {
-    const task = update(id, { status: 'done' });
+  function complete(id: string, by: Actor = 'user'): CompleteResult {
+    const task = update(id, { status: 'done' }, by);
     let followUp: CompleteResult['followUp'] = null;
     if (task.kind === 'read') {
       followUp = {
@@ -118,7 +189,7 @@ export function createTasks(ctx: Ctx, review: Review) {
     const c = review.counts({ now });
     if (!c.total) return null;
     const parts = [c.review && `${c.review} review`, c.learning && `${c.learning} learning`, c.new && `${c.new} new`].filter(Boolean);
-    return {
+    return withSteps({
       id: REVIEW_TASK_ID,
       title: `Review ${c.total} due card${c.total === 1 ? '' : 's'}`,
       kind: 'todo',
@@ -132,8 +203,10 @@ export function createTasks(ctx: Ctx, review: Review) {
       completedAt: null,
       sortOrder: -1,
       createdAt: now.toISOString(),
+      createdBy: 'system',
+      singleStep: true,
       virtual: true,
-    };
+    }, []);
   }
 
   /**
@@ -159,7 +232,7 @@ export function createTasks(ctx: Ctx, review: Review) {
     } else {
       rows = db.all(`${SELECT} WHERE t.status = 'open'${src} ${order} LIMIT :limit`, p);
     }
-    const tasks = rows.map(toTask);
+    const tasks = hydrate(rows);
     if ((view === 'today' || view === 'all_open') && opts.includeReview !== false && !opts.sourceId) {
       const rt = reviewTask();
       if (rt) tasks.unshift(rt);
@@ -177,10 +250,35 @@ export function createTasks(ctx: Ctx, review: Review) {
     );
     return sources.map((s) => ({
       ...s,
-      openTasks: db.all(`${SELECT} WHERE t.status = 'open' AND t.source_id = ? ORDER BY t.sort_order`, [s.id]).map(toTask),
+      openTasks: hydrate(db.all(`${SELECT} WHERE t.status = 'open' AND t.source_id = ? ORDER BY t.sort_order`, [s.id])),
     }));
   }
 
-  return { get, create, update, complete, remove, list, reviewTask, readingQueue };
+  /** What got done today (the day rolls over at 4am): tasks, steps, and tasks whose first steps were defined. */
+  function doneToday(now = new Date()): DoneToday {
+    const d = momentumDay(now);
+    const p = { start: d.start.toISOString(), end: d.end.toISOString() };
+    return {
+      date: d.date,
+      tasks: db.all<{ id: string; title: string; at: string }>(
+        `SELECT id, title, completed_at AS at FROM tasks WHERE status = 'done' AND completed_at >= :start AND completed_at < :end ORDER BY completed_at`,
+        p,
+      ),
+      subtasks: db.all<{ id: string; title: string; taskId: string; taskTitle: string; at: string }>(
+        `SELECT st.id, st.title, st.task_id AS taskId, t.title AS taskTitle, st.completed_at AS at
+         FROM subtasks st JOIN tasks t ON t.id = st.task_id
+         WHERE st.completed_at >= :start AND st.completed_at < :end ORDER BY st.completed_at`,
+        p,
+      ),
+      stepsDefined: db.all<{ taskId: string; taskTitle: string; at: string }>(
+        `SELECT e.task_id AS taskId, t.title AS taskTitle, max(e.at) AS at
+         FROM task_events e JOIN tasks t ON t.id = e.task_id
+         WHERE e.type = 'steps_defined' AND e.at >= :start AND e.at < :end GROUP BY e.task_id ORDER BY at`,
+        p,
+      ),
+    };
+  }
+
+  return { get, create, update, complete, remove, list, reviewTask, readingQueue, doneToday, hydrate };
 }
 export type Tasks = ReturnType<typeof createTasks>;

@@ -153,6 +153,26 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
     loom.tasks.remove(req.params.id);
     res.status(204).end();
   });
+  r.get('/done-today', (_req, res) => res.json(loom.tasks.doneToday()));
+  r.get('/tasks/:id', (req, res) => res.json(loom.tasks.get(req.params.id)));
+
+  // ---- subtasks (steps) ----
+  r.post('/tasks/:id/subtasks', (req, res) => {
+    const b = schemas.SubtaskCreate.partial({ title: true }).extend({ titles: z.array(z.string()).optional() }).parse(req.body);
+    res.status(201).json(loom.subtasks.add(req.params.id, b.titles ?? (b.title ? [b.title] : []), { position: b.position }));
+  });
+  r.put('/tasks/:id/subtasks/order', (req, res) =>
+    res.json(loom.subtasks.reorder(req.params.id, z.object({ ids: z.array(z.string()) }).parse(req.body).ids)),
+  );
+  r.patch('/subtasks/:id', (req, res) => res.json(loom.subtasks.update(req.params.id, schemas.SubtaskPatch.parse(req.body))));
+  r.post('/subtasks/:id/complete', (req, res) => {
+    const { undo } = z.object({ undo: z.boolean().optional() }).parse(req.body ?? {});
+    res.json(undo ? loom.subtasks.uncomplete(req.params.id) : loom.subtasks.complete(req.params.id));
+  });
+  r.post('/subtasks/:id/move', (req, res) =>
+    res.json(loom.subtasks.move(req.params.id, z.object({ delta: z.number().int() }).parse(req.body).delta)),
+  );
+  r.delete('/subtasks/:id', (req, res) => res.json(loom.subtasks.remove(req.params.id)));
 
   // ---- graph & connections ----
   r.get('/graph', (req, res) =>

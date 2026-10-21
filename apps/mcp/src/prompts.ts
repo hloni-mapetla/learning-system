@@ -11,6 +11,7 @@ Ground rules:
 - Processing a source (finished reading, "process reading", imported highlights): start_recall → ask for a blank-page recall → save_recall (verbatim) → get_recall_review → tell them what they missed and got wrong → ask THEM to draft the 3–7 concept/claim notes in their own words → critique the drafts (accuracy, one idea per note, the missing why, connections they name first) → save with authored_by "user" → then propose cards, misses first. Don't propose note text yourself, not even assembled from their words, unless they say "suggest for me".
 - Writing: propose new notes, cards and links and save them only after the user approves (they may approve a whole batch at once). Save the learner's own words with authored_by "user"; anything you drafted is authored_by "claude" and shows as yours. Prefer atomic notes (one idea each), cards that test one thing, and always pass refs so cards link back to their notes/sources.
 - Second brain: not everything comes from a source. The learner keeps standalone notes (no source_id) and a daily note per day. When they ask you to note or remember something, save their own words (append_to_daily_note, or create_note without source_id and authored_by "user"); suggest [[wikilinks]] to related notes rather than rewriting.
+- Tasks: talk about a task's next_action (its first unfinished step), not its vague title. When a task has needs_first_step, or the user is about to work on it, ask for the very first physical step. Breaking a task down: the user drafts the steps first; you critique each for concreteness ("could you start it in 2 minutes?") and size, suggest the smallest possible first step, then save only the steps they approve with add_subtask (authored_by "user" for their wording). Draft steps yourself only if they say "suggest for me", and save those as authored_by "claude". When all steps are done, ask whether to complete the task; never complete it yourself.
 - IDs: every item has an id; pass ids between tools rather than titles.`;
 
 export const RATING_RUBRIC = `Map the user's answer to an FSRS rating:
@@ -111,6 +112,26 @@ ${RATING_RUBRIC}`,
 
 Fallback, clearly secondary: if I say "suggest for me", draft the notes yourself, label them as your drafts, and save approved ones with authored_by "claude".`,
   },
+  {
+    name: 'break_down',
+    title: 'Break down a task',
+    description: 'Turn a vague task into concrete next steps: you draft them, Claude critiques and finds the smallest first step.',
+    args: [{ name: 'task', description: 'The task (title or id), or a new one to create', required: false }],
+    render: (a) => `Help me break down ${a.task ? `"${a.task}" ${TRUNCATION_HINT('task')}` : 'a task'} into concrete next steps in Loom. I draft, you critique.
+
+1. Find the task: ${a.task ? `call list_tasks (view all_open) and match "${a.task}"; if it's an id, call get_task.` : 'ask me which task (list_tasks view today shows my open ones, with needs_first_step on undefined ones).'} If it doesn't exist, offer to create it (create_task, authored_by "user" since the words are mine). If it already has steps, show them briefly and ask what's missing.
+2. Ask me to write the first 3–5 steps myself, as I'd actually do them. Wait for my draft. Don't offer example steps for this task first; at most say "physical actions, each startable in about 2 minutes".
+3. Critique my draft, one short line per step:
+   - Concreteness: could I start it in 2 minutes without deciding anything? Flag vague verbs ("work on", "do", "finish", "handle", "deal with", "sort out", "look into") and ask what the physical action is (open which file, write what, email whom).
+   - Size: anything over ~45 minutes should be split; anything I'll dread should be smaller.
+   - Order: is the first step the easiest way in?
+   Then suggest the smallest possible first step, something almost too small to refuse ("open the draft and read the last paragraph"), as a suggestion I can take or change.
+4. Let me revise. Ask me to approve the final list (all, or by number). Save only approved steps, in order, with add_subtask (authored_by "user" for my wording; if you reworded one and I accepted your wording, that step is authored_by "claude"). Mention any hints the tool returns, gently.
+5. If I can't name any step, the first step IS defining it: save "Write down what done looks like for this task in 3 bullets" (authored_by "claude", after I agree). That counts as progress.
+6. End with the next action in one line and stop. Don't lecture about motivation.
+
+If I say "suggest for me" at any point, draft the steps yourself, label them as your drafts, and save the approved ones with authored_by "claude".`,
+  },
 ];
 
 export function renderGuide(): string {
@@ -124,7 +145,7 @@ export function renderGuide(): string {
   );
   return `# Loom: Claude Project instructions
 
-Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", or "process reading <title>" after finishing something (you'll be asked to recall before seeing highlights).
+Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", "process reading <title>" after finishing something (you'll be asked to recall before seeing highlights), or "break down <task>".
 
 The same scripts are also available as MCP prompts (\`daily_review\`, \`exam_prep\`, \`connect\`, \`process_reading\`) in clients that support prompts (Claude Desktop, Claude Code: \`/mcp__loom__daily_review\`).
 

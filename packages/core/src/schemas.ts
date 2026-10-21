@@ -82,10 +82,22 @@ export const TaskCreate = z.object({
   noteId: z.string().nullish(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
   priority: priority.optional(),
+  singleStep: z.boolean().optional(),
 });
 export const TaskPatch = TaskCreate.partial().extend({
   status: z.enum(['open', 'done', 'cancelled']).optional(),
   sortOrder: z.number().optional(),
 });
+export const SubtaskCreate = z.object({
+  title: z.string().trim().min(1),
+  /** Insert before this index (0 = first); default appends. */
+  position: z.number().int().min(0).optional(),
+});
+export const SubtaskPatch = z.object({
+  title: z.string().trim().min(1).optional(),
+  done: z.boolean().optional(),
+});
 export type TaskCreate = z.infer<typeof TaskCreate>;
+export type SubtaskCreate = z.infer<typeof SubtaskCreate>;
+export type SubtaskPatch = z.infer<typeof SubtaskPatch>;
 export type TaskPatch = z.infer<typeof TaskPatch>;

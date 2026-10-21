@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import type { CompleteResult, Task } from '@loom/core';
+import type { CompleteResult, DoneToday, Subtask, Task } from '@loom/core';
 import { api, useAction, useApi } from '../lib/api';
-import { useListNav } from '../lib/useListNav';
+import { useHotkeys } from '../lib/hotkeys';
 import { Button, Empty, PageHeader, Section } from '../components/ui';
 import { TaskForm } from '../components/TaskForm';
 import { TaskRow } from '../components/TaskRow';
+import { TaskSteps } from '../components/TaskSteps';
 import { RecallBox } from '../components/RecallBox';
 import { Priority } from './Sources';
 
@@ -41,7 +42,28 @@ export function TodayPage() {
   const todayIds = new Set(todayList.map((t) => t.id));
   const upcomingIds = new Set((upcoming.data ?? []).map((t) => t.id));
   const someday = (others.data ?? []).filter((t) => !todayIds.has(t.id) && !upcomingIds.has(t.id) && !t.virtual);
-  const flat = [...todayList, ...(upcoming.data ?? []), ...someday];
+  const done = useApi<DoneToday>('/done-today');
+  const tasks = [...todayList, ...(upcoming.data ?? []), ...someday];
+
+  // Keyboard model: j/k walk tasks and, inside an expanded task, its steps. Selection is kept by id so it survives refetches.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selKey, setSelKey] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  type Row = { key: string; task: Task; step?: Subtask };
+  const flat: Row[] = tasks.flatMap((t) => [
+    { key: `t:${t.id}`, task: t },
+    ...(expanded.has(t.id) ? t.subtasks.map((st) => ({ key: `s:${st.id}`, task: t, step: st })) : []),
+  ]);
+  const sel = flat.findIndex((r) => r.key === selKey);
+  const cur = sel >= 0 ? flat[sel] : null;
+  useEffect(() => {
+    if (sel >= 0) document.querySelector(`[data-row="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [sel]);
+
+  const toggleStep = useAction((st: Subtask) => api.post(`/subtasks/${st.id}/complete`, { undo: st.done }));
+  const moveStep = useAction(({ id, delta }: { id: string; delta: number }) => api.post(`/subtasks/${id}/move`, { delta }));
+  const removeStep = useAction((id: string) => api.del(`/subtasks/${id}`));
+  const setSingle = useAction((t: Task) => api.patch(`/tasks/${t.id}`, { singleStep: !t.singleStep }));
 
   const toggle = async (t: Task) => {
     if (t.virtual) return navigate({ to: '/review' });
@@ -49,25 +71,72 @@ export function TodayPage() {
     const r = await complete.mutateAsync(t.id);
     if (r.followUp) setCapture(r.followUp);
   };
-  const [sel] = useListNav(flat.length, (i) => toggle(flat[i]), {
-    a: () => setAdding(true),
-    x: () => sel >= 0 && toggle(flat[sel]),
-  });
+  const expand = (t: Task, open = !expanded.has(t.id)) => {
+    if (t.virtual) return;
+    setExpanded((e) => {
+      const n = new Set(e);
+      if (open) n.add(t.id);
+      else n.delete(t.id);
+      return n;
+    });
+    if (!open) setSelKey(`t:${t.id}`);
+  };
+  const focusStepInput = (t: Task) => {
+    if (t.virtual) return;
+    if (!t.needsFirstStep) expand(t, true);
+    setTimeout(() => document.getElementById(`step-input-${t.id}`)?.focus(), 0);
+  };
+  const go = (d: number) => {
+    const i = Math.max(0, Math.min(flat.length - 1, (sel < 0 && d > 0 ? -1 : sel) + d));
+    if (flat[i]) setSelKey(flat[i].key);
+  };
+  const move = (d: number) => cur?.step && moveStep.mutate({ id: cur.step.id, delta: d });
+
+  useHotkeys(
+    {
+      j: () => go(1),
+      k: () => go(-1),
+      ArrowDown: () => go(1),
+      ArrowUp: () => go(-1),
+      a: () => setAdding(true),
+      Enter: () => cur && expand(cur.task, cur.step ? false : undefined),
+      x: () => cur && (cur.step ? toggleStep.mutate(cur.step) : toggle(cur.task)),
+      ' ': () => cur && (cur.step ? toggleStep.mutate(cur.step) : expand(cur.task)),
+      n: () => cur && focusStepInput(cur.task),
+      e: () => cur?.step && setEditing(cur.step.id),
+      'alt+ArrowUp': () => move(-1),
+      'alt+ArrowDown': () => move(1),
+      K: () => move(-1),
+      J: () => move(1),
+      S: () => cur && !cur.task.virtual && setSingle.mutate(cur.task),
+      Backspace: () => {
+        if (!cur?.step || !confirm(`Delete step “${cur.step.title}”?`)) return;
+        go(-1);
+        removeStep.mutate(cur.step.id);
+      },
+    },
+    [flat, sel, cur, expanded],
+  );
 
   const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  let row = 0;
   const rows = (list: Task[]) => (
     <ul className="space-y-2">
       {list.map((t) => {
-        const i = row++;
+        const i = flat.findIndex((r) => r.key === `t:${t.id}`);
+        const open = expanded.has(t.id);
         return (
           <li key={t.id} data-row={i}>
-            <TaskRow task={t} selected={i === sel} onToggle={toggle} />
+            <TaskRow task={t} selected={i === sel} onToggle={toggle} onExpand={(x) => expand(x)} expanded={open} showFirstStep={!open}>
+              {open && (
+                <TaskSteps task={t} rowIndex={i + 1} selectedId={cur?.step?.id ?? null} editingId={editing} onEdited={() => setEditing(null)} />
+              )}
+            </TaskRow>
           </li>
         );
       })}
     </ul>
   );
+  const doneCount = (done.data?.tasks.length ?? 0) + (done.data?.subtasks.length ?? 0) + (done.data?.stepsDefined.length ?? 0);
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
@@ -103,7 +172,24 @@ export function TodayPage() {
         {!!upcoming.data?.length && <div className="mt-8"><Section title="Upcoming">{rows(upcoming.data)}</Section></div>}
         {!!someday.length && <div className="mt-8"><Section title="Someday">{rows(someday)}</Section></div>}
       </div>
-      <aside>
+      <aside className="space-y-8">
+        <Section title={`Done today${doneCount ? ` · ${doneCount}` : ''}`}>
+          {doneCount ? (
+            <ul className="space-y-1 text-sm">
+              {done.data!.stepsDefined.map((d) => (
+                <li key={`d${d.taskId}`} className="flex gap-2"><span className="text-accent">✎</span><span className="min-w-0 truncate">Defined next steps: <span className="text-muted">{d.taskTitle}</span></span></li>
+              ))}
+              {done.data!.subtasks.map((d) => (
+                <li key={`s${d.id}`} className="flex gap-2"><span className="text-accent">✓</span><span className="min-w-0 truncate">{d.title} <span className="text-faint">· {d.taskTitle}</span></span></li>
+              ))}
+              {done.data!.tasks.map((d) => (
+                <li key={`t${d.id}`} className="flex gap-2"><span className="text-accent">✔</span><span className="min-w-0 truncate font-medium">{d.title}</span></li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-faint">Nothing yet. Writing down a first step counts.</p>
+          )}
+        </Section>
         <Section title="Reading queue" actions={<Link to="/sources" className="text-xs text-accent">all sources</Link>}>
           {queue.data?.length ? (
             <ul className="space-y-2">

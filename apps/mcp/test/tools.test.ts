@@ -55,7 +55,7 @@ describe('MCP server', () => {
     expect(tools.find((t) => t.name === 'get_due_cards')!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'create_card')!.annotations?.readOnlyHint).toBe(false);
     const { prompts } = await client.listPrompts();
-    expect(prompts.map((p) => p.name).sort()).toEqual(['connect', 'daily_review', 'exam_prep', 'process_reading']);
+    expect(prompts.map((p) => p.name).sort()).toEqual(['break_down', 'connect', 'daily_review', 'exam_prep', 'process_reading']);
     const p = await client.getPrompt({ name: 'exam_prep', arguments: { topic: 'heuristics' } });
     expect((p.messages[0].content as { text: string }).text).toContain('get_study_context("heuristics")');
     expect(client.getInstructions()).toContain('never reveal');
@@ -239,5 +239,80 @@ describe('MCP second-brain tools', () => {
     const list = await call('list_notes', { scope: 'standalone' });
     expect(list.notes.map((n: any) => n.id).sort()).toEqual([r.id, own.id].sort());
     expect((await call('list_notes', { scope: 'sourced' })).total).toBe(2);
+  });
+});
+
+describe('MCP steps (subtasks)', () => {
+  it('annotates step tools as reads/writes', async () => {
+    const { tools } = await client.listTools();
+    const ann = (n: string) => tools.find((t) => t.name === n)!.annotations!;
+    expect(ann('get_task').readOnlyHint).toBe(true);
+    for (const n of ['add_subtask', 'update_subtask', 'complete_subtask', 'reorder_subtasks']) expect(ann(n)).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    expect(ann('delete_subtask').destructiveHint).toBe(true);
+  });
+
+  it('adds the learner\'s steps, shows next actions in list_tasks, and offers (not forces) completion', async () => {
+    const task = await call('create_task', { title: 'Work on thesis', due: localDate() });
+    expect(task).toMatchObject({ created_by: 'claude', needs_first_step: true });
+    const mine = await call('create_task', { title: 'Call the bank', single_step: true, authored_by: 'user', due: localDate() });
+    expect(mine.created_by).toBeUndefined();
+    expect(mine.needs_first_step).toBeUndefined();
+
+    const r = await call('add_subtask', { task_id: task.id, steps: ['Open the draft and reread section 2.3', 'work on intro'], authored_by: 'user' });
+    expect(r.steps_defined).toBe(true);
+    expect(r.hints).toEqual([{ step: 'work on intro', hint: expect.stringMatching(/2 minutes/) }]);
+    expect(r.task).toMatchObject({ progress: '0/2', next_action: { title: 'Open the draft and reread section 2.3' } });
+    expect(r.added.every((s: any) => s.by === undefined)).toBe(true); // the learner's own words carry no author tag
+
+    const drafted = await call('add_subtask', { task_id: task.id, steps: ['Write the opening sentence of the intro'], position: 1 });
+    expect(drafted.added[0].by).toBe('claude');
+    expect(loom.subtasks.get(drafted.added[0].id).createdBy).toBe('claude');
+
+    const today = await call('list_tasks', { view: 'today' });
+    const t = today.find((x: any) => x.id === task.id);
+    expect(t.steps.map((s: any) => s.title)).toEqual(['Open the draft and reread section 2.3', 'Write the opening sentence of the intro', 'work on intro']);
+    expect(t.next_action.title).toBe('Open the draft and reread section 2.3');
+
+    const [a, b, c] = t.steps.map((s: any) => s.id);
+    expect((await call('reorder_subtasks', { task_id: task.id, subtask_ids: [b, a, c] })).steps.map((s: any) => s.id)).toEqual([b, a, c]);
+    await expect(call('reorder_subtasks', { task_id: task.id, subtask_ids: [a] })).rejects.toThrow(/exactly once/);
+    expect((await call('update_subtask', { subtask_id: c, title: 'Draft 3 bullets for the intro' })).step.title).toBe('Draft 3 bullets for the intro');
+
+    await call('complete_subtask', { subtask_id: a });
+    await call('complete_subtask', { subtask_id: b });
+    const undone = await call('complete_subtask', { subtask_id: b, undo: true });
+    expect(undone.task.next_action.id).toBe(b);
+    await call('complete_subtask', { subtask_id: b });
+    const last = await call('complete_subtask', { subtask_id: c });
+    expect(last).toMatchObject({ all_steps_done: true, task: { status: 'open', progress: '3/3' } });
+    expect(last.message).toMatch(/never complete it on your own/);
+    expect(loom.tasks.get(task.id).status).toBe('open');
+
+    const full = await call('get_task', { task_id: task.id });
+    expect(full.steps).toHaveLength(3);
+    expect((await call('delete_subtask', { subtask_id: c })).progress).toBe('2/2');
+    expect(loom.db.all("SELECT created_by FROM task_events WHERE type = 'subtask_done'").every((e: any) => e.created_by === 'claude')).toBe(true);
+  });
+
+  it('logs a reschedule by Claude', async () => {
+    const t = loom.tasks.create({ title: 'Renew passport', dueDate: localDate() });
+    await call('update_task', { task_id: t.id, due: '2099-01-01' });
+    expect(loom.db.get<any>("SELECT type, created_by FROM task_events WHERE task_id = ?", [t.id])).toEqual({ type: 'rescheduled', created_by: 'claude' });
+  });
+
+  it('break_down asks for my steps before suggesting any, and saves only approved ones', async () => {
+    const p = await client.getPrompt({ name: 'break_down', arguments: { task: 'Write grant report' } });
+    const text = (p.messages[0].content as { text: string }).text;
+    const at = (s: string) => {
+      const i = text.indexOf(s);
+      expect(i, s).toBeGreaterThan(-1);
+      return i;
+    };
+    expect(at('Ask me to write the first 3–5 steps myself')).toBeLessThan(at('Critique my draft'));
+    expect(at('Critique my draft')).toBeLessThan(at('smallest possible first step'));
+    expect(at('smallest possible first step')).toBeLessThan(at('Save only approved steps'));
+    expect(text).toContain('authored_by "user"');
+    expect(text).toContain('suggest for me');
+    expect(client.getInstructions()).toMatch(/the user drafts the steps first/);
   });
 });

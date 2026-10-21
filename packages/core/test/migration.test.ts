@@ -66,8 +66,8 @@ describe('schema v3 migration', () => {
 
     const loom = createLoom({ dbPath: path, embedder: fakeEmbedder(), db: { backupDir: join(dir, 'backups') } });
     const { db } = loom;
-    expect(db.schemaVersion()).toBe(3);
-    expect(db.migrationBackup).toMatch(/pre-migration-v2-to-v3-.*\.db$/);
+    expect(db.schemaVersion()).toBe(4);
+    expect(db.migrationBackup).toMatch(/pre-migration-v2-to-v4-.*\.db$/);
     expect(existsSync(db.migrationBackup!)).toBe(true);
     expect(new Db(db.migrationBackup!, { migrateTo: 2, backupDir: null }).schemaVersion()).toBe(2);
 
@@ -112,10 +112,32 @@ describe('schema v3 migration', () => {
     again.close();
   });
 
+  it('v3 → v4 adds steps without touching existing tasks, cards or review history', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'loom-mig4-'));
+    const path = join(dir, 'loom.db');
+    const before = buildV2(path);
+    const v3 = new Db(path, { migrateTo: 3, backupDir: null });
+    const tasksBefore = v3.all('SELECT * FROM tasks ORDER BY id');
+    v3.close();
+
+    const loom = createLoom({ dbPath: path, embedder: null, db: { backupDir: join(dir, 'backups') } });
+    expect(loom.db.migrationBackup).toMatch(/pre-migration-v3-to-v4-.*\.db$/);
+    expect(loom.db.all(`SELECT ${CARD_COLS} FROM cards ORDER BY id`)).toEqual(before.cards);
+    expect(loom.db.all(`SELECT ${LOG_COLS} FROM review_logs ORDER BY id`)).toEqual(before.logs);
+    const after = loom.db.all<Record<string, unknown>>('SELECT * FROM tasks ORDER BY id');
+    expect(after.map(({ single_step, created_by, ...rest }) => rest)).toEqual(tasksBefore);
+    expect(after.map((t) => [t.single_step, t.created_by])).toEqual([[0, 'user']]);
+    expect(loom.db.all('PRAGMA foreign_key_check')).toEqual([]);
+    expect(loom.tasks.get('T1')).toMatchObject({ kind: 'read', subtasks: [], needsFirstStep: false });
+    loom.subtasks.add('T1', ['Reread the chapter summary page']);
+    expect(loom.tasks.get('T1').progress).toEqual({ done: 0, total: 1 });
+    loom.close();
+  });
+
   it('does not back up a brand-new database', () => {
     const dir = mkdtempSync(join(tmpdir(), 'loom-new-'));
     const loom = createLoom({ dbPath: join(dir, 'loom.db'), embedder: null, db: { backupDir: join(dir, 'backups') } });
-    expect(loom.db.schemaVersion()).toBe(3);
+    expect(loom.db.schemaVersion()).toBe(4);
     expect(loom.db.migrationBackup).toBeNull();
     loom.close();
   });

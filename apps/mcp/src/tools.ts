@@ -13,6 +13,9 @@ import {
   type CardView,
   type ItemType,
   type Loom,
+  type Subtask,
+  type SubtaskResult,
+  type Task,
 } from '@loom/core';
 
 // ---- output shaping: compact JSON that keeps ids so Claude can chain calls ----
@@ -712,7 +715,8 @@ export function registerTools(server: McpServer, loom: Loom) {
 
   // ================= tasks =================
 
-  const taskOut = (t: ReturnType<typeof loom.tasks.get>) => ({
+  const stepOut = (st: Subtask) => ({ id: st.id, title: st.title, done: st.done, ...(st.createdBy !== 'user' ? { by: st.createdBy } : {}) });
+  const taskOut = (t: Task, full = false) => ({
     id: t.id,
     title: t.title,
     kind: t.kind,
@@ -722,7 +726,21 @@ export function registerTools(server: McpServer, loom: Loom) {
     source: t.sourceTitle ?? undefined,
     source_id: t.sourceId ?? undefined,
     details: t.details || undefined,
+    ...(t.progress.total ? { progress: `${t.progress.done}/${t.progress.total}` } : {}),
+    ...(t.nextAction ? { next_action: { id: t.nextAction.id, title: t.nextAction.title } } : {}),
+    ...(t.needsFirstStep ? { needs_first_step: true } : {}),
+    ...(t.singleStep && !t.virtual ? { single_step: true } : {}),
+    ...(t.progress.total && (full || t.status === 'open') ? { steps: t.subtasks.map(stepOut) } : {}),
+    ...(t.createdBy !== 'user' && !t.virtual ? { created_by: t.createdBy } : {}),
+    ...(full ? { completed_at: t.completedAt ?? undefined, created_at: t.createdAt } : {}),
     ...(t.virtual ? { virtual: true } : {}),
+  });
+  const stepResult = (r: SubtaskResult) => ({
+    step: stepOut(r.subtask),
+    task: taskOut(r.task),
+    ...(r.allStepsDone
+      ? { all_steps_done: true, message: 'All steps done. Ask the user whether to complete the task (complete_task); never complete it on your own.' }
+      : {}),
   });
 
   server.registerTool(
@@ -731,7 +749,8 @@ export function registerTools(server: McpServer, loom: Loom) {
       title: 'List tasks',
       description:
         "The user's to-do list. view=today (overdue + due today + urgent, plus a computed 'Review N due cards' task), upcoming, all_open, done. " +
-        'view=reading_queue returns sources being read/queued by priority with their open tasks.',
+        'view=reading_queue returns sources being read/queued by priority with their open tasks. Each task has its steps, progress ("2/5"), ' +
+        'next_action (the first unfinished step: talk about this, not the vague task title) and needs_first_step when no concrete step is written yet.',
       inputSchema: {
         view: z.enum(['today', 'upcoming', 'all_open', 'done', 'reading_queue']).default('today'),
         source_id: z.string().optional(),
@@ -740,7 +759,7 @@ export function registerTools(server: McpServer, loom: Loom) {
     },
     async ({ view, source_id }) => {
       if (view === 'reading_queue') return json(loom.tasks.readingQueue());
-      return json(loom.tasks.list({ view, sourceId: source_id, limit: 100 }).map(taskOut));
+      return json(loom.tasks.list({ view, sourceId: source_id, limit: 100 }).map((t) => taskOut(t)));
     },
   );
 
@@ -750,7 +769,8 @@ export function registerTools(server: McpServer, loom: Loom) {
       title: 'Create task',
       description:
         'Add a to-do. kinds: todo, read ("read chapter 4"), process_highlights, summarize ("write summary of X"), write. ' +
-        'Link learning tasks to a source_id. due is YYYY-MM-DD (local). priority 1 = highest.',
+        'Link learning tasks to a source_id. due is YYYY-MM-DD (local). priority 1 = highest. single_step: true for tasks too small to need steps. ' +
+        'authored_by "user" when the task is the user\'s own words ("add a task: …"), else "claude". Add steps with add_subtask.',
       inputSchema: {
         title: z.string().min(1),
         kind: z.enum(TASK_KINDS).default('todo'),
@@ -758,11 +778,20 @@ export function registerTools(server: McpServer, loom: Loom) {
         due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         priority: z.number().int().min(1).max(5).default(3),
         details: z.string().optional(),
+        single_step: z.boolean().optional(),
+        authored_by: z.enum(['claude', 'user']).default('claude'),
       },
       annotations: WRITE,
     },
     async (a) =>
-      json(taskOut(loom.tasks.create({ title: a.title, kind: a.kind, sourceId: a.source_id, dueDate: a.due, priority: a.priority, details: a.details }))),
+      json(
+        taskOut(
+          loom.tasks.create(
+            { title: a.title, kind: a.kind, sourceId: a.source_id, dueDate: a.due, priority: a.priority, details: a.details, singleStep: a.single_step },
+            a.authored_by,
+          ),
+        ),
+      ),
   );
 
   server.registerTool(
@@ -779,7 +808,7 @@ export function registerTools(server: McpServer, loom: Loom) {
       if (task_id === REVIEW_TASK_ID) {
         return json({ error: "The review task completes itself when today's due cards are reviewed. Use get_due_cards to review." });
       }
-      const r = loom.tasks.complete(task_id);
+      const r = loom.tasks.complete(task_id, 'claude');
       return json({ task: taskOut(r.task), follow_up: r.followUp });
     },
   );
@@ -788,18 +817,116 @@ export function registerTools(server: McpServer, loom: Loom) {
     'update_task',
     {
       title: 'Update task',
-      description: 'Change a task: title, due date, priority, details, or status (open/cancelled; use complete_task to finish).',
+      description:
+        'Change a task: title, due date, priority, details, single_step, or status (open/cancelled; use complete_task to finish). ' +
+        'Moving a dated task is logged (so the weekly review can see tasks that keep getting moved).',
       inputSchema: {
         task_id: z.string(),
         title: z.string().optional(),
         due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
         priority: z.number().int().min(1).max(5).optional(),
         details: z.string().optional(),
+        single_step: z.boolean().optional(),
         status: z.enum(['open', 'cancelled']).optional(),
       },
       annotations: WRITE,
     },
-    async ({ task_id, due, ...patch }) => json(taskOut(loom.tasks.update(task_id, { ...patch, dueDate: due }))),
+    async ({ task_id, due, single_step, ...patch }) =>
+      json(taskOut(loom.tasks.update(task_id, { ...patch, dueDate: due, singleStep: single_step }, 'claude'))),
+  );
+
+  server.registerTool(
+    'get_task',
+    {
+      title: 'Get task',
+      description: 'One task with all its steps (done and not), progress, next_action and needs_first_step.',
+      inputSchema: { task_id: z.string() },
+      annotations: READ,
+    },
+    async ({ task_id }) => {
+      if (task_id === REVIEW_TASK_ID) {
+        const rt = loom.tasks.reviewTask();
+        return json(rt ? taskOut(rt, true) : { error: 'No cards are due, so there is no review task right now.' });
+      }
+      return json(taskOut(loom.tasks.get(task_id), true));
+    },
+  );
+
+  // ================= steps (subtasks) =================
+
+  server.registerTool(
+    'add_subtask',
+    {
+      title: 'Add steps to a task',
+      description:
+        "Add one or more ordered steps to a task (appended, or inserted at position; 0 = first). The first unfinished step is the task's next action. " +
+        'Steps should be concrete physical actions startable in ~2 minutes ("open the draft and reread §2.3", not "work on thesis"). ' +
+        'The learner drafts steps first; save their wording with authored_by "user". Steps you drafted (only when they said "suggest for me") are authored_by "claude". ' +
+        'The result lists vague-looking steps under hints; mention them gently, never block.',
+      inputSchema: {
+        task_id: z.string(),
+        steps: z.array(z.string().min(1)).min(1),
+        position: z.number().int().min(0).optional(),
+        authored_by: z.enum(['claude', 'user']).default('claude'),
+      },
+      annotations: WRITE,
+    },
+    async ({ task_id, steps, position, authored_by }) => {
+      const r = loom.subtasks.add(task_id, steps, { position, createdBy: authored_by });
+      return json({
+        task: taskOut(r.task),
+        added: r.added.map(stepOut),
+        ...(r.hints.length ? { hints: r.hints.map((h) => ({ step: h.title, hint: h.hint })) } : {}),
+        ...(r.stepsDefined ? { steps_defined: true } : {}),
+      });
+    },
+  );
+
+  server.registerTool(
+    'update_subtask',
+    {
+      title: 'Update step',
+      description: 'Reword a step, or mark it done/not done.',
+      inputSchema: { subtask_id: z.string(), title: z.string().min(1).optional(), done: z.boolean().optional() },
+      annotations: WRITE,
+    },
+    async ({ subtask_id, ...patch }) => json(stepResult(loom.subtasks.update(subtask_id, patch, 'claude'))),
+  );
+
+  server.registerTool(
+    'complete_subtask',
+    {
+      title: 'Complete step',
+      description:
+        'Tick off a step (undo: true to untick). Returns the new next_action. When every step is done the result says all_steps_done: ' +
+        'ask the user whether to complete the task; never complete it on your own.',
+      inputSchema: { subtask_id: z.string(), undo: z.boolean().default(false) },
+      annotations: WRITE,
+    },
+    async ({ subtask_id, undo }) =>
+      json(stepResult(undo ? loom.subtasks.uncomplete(subtask_id, 'claude') : loom.subtasks.complete(subtask_id, 'claude'))),
+  );
+
+  server.registerTool(
+    'reorder_subtasks',
+    {
+      title: 'Reorder steps',
+      description: "Set the order of a task's steps. subtask_ids must list every step of the task exactly once (get_task shows them).",
+      inputSchema: { task_id: z.string(), subtask_ids: z.array(z.string()).min(1) },
+      annotations: WRITE,
+    },
+    async ({ task_id, subtask_ids }) => json(taskOut(loom.subtasks.reorder(task_id, subtask_ids), true)),
+  );
+
+  server.registerTool(
+    'delete_subtask',
+    {
+      title: 'Delete step',
+      description: 'Remove a step from a task (e.g. one saved by mistake). Only after the user agrees.',
+      inputSchema: { subtask_id: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    async ({ subtask_id }) => json(taskOut(loom.subtasks.remove(subtask_id), true)),
   );
 
   // ================= import & stats =================
