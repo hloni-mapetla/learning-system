@@ -378,3 +378,11 @@ describe('MCP days', () => {
     expect(client.getInstructions()).toMatch(/decide the night before/);
   });
 });
+
+describe('MCP day rating', () => {
+  it('get_day shows the rating and its line once the day is rated', async () => {
+    const today = (await call('get_day', {})).date;
+    loom.momentum.rate(today, 4, 'Good start');
+    expect(await call('get_day', {})).toMatchObject({ rating: 4, reflection: 'Good start' });
+  });
+});

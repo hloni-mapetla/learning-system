@@ -40,7 +40,7 @@ describe('evening plan', () => {
     expect(day.firstThing!.task.nextAction!.id).toBe(day.firstThing!.step!.id);
     expect(hint).toBeNull();
     // Writing the first step counts as progress today.
-    expect(loom.tasks.doneToday(EVENING).stepsDefined).toHaveLength(1);
+    expect(loom.tasks.doneToday().stepsDefined).toHaveLength(1); // logged at the real time
   });
 
   it('a new step goes before the current next action, not after done steps; vague steps get the soft hint', () => {

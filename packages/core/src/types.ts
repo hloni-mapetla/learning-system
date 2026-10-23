@@ -299,3 +299,60 @@ export interface Day {
 }
 
 export const PLAN_STEP_PROMPT = "What's the first physical step, small enough to start half-awake?";
+
+export const MINIMUM_KINDS = ['sessions', 'focus_minutes', 'steps'] as const;
+export type MinimumKind = (typeof MINIMUM_KINDS)[number];
+/** The daily minimum: a deliberately low bar (default: start one session of any length). */
+export interface DailyMinimum {
+  kind: MinimumKind;
+  value: number;
+}
+
+export function describeMinimum(m: DailyMinimum): string {
+  if (m.kind === 'sessions') return m.value === 1 ? 'Start one session (any length)' : `Start ${m.value} sessions`;
+  if (m.kind === 'focus_minutes') return `${m.value} minutes of focused work`;
+  return m.value === 1 ? 'Finish or define one step' : `Finish or define ${m.value} steps`;
+}
+
+/** What a day counted toward its minimum. Steps = steps ticked + tasks completed + tasks whose steps were defined. */
+export interface DayMeasure {
+  sessions: number;
+  focusMinutes: number;
+  steps: number;
+}
+
+export interface ChainDay {
+  date: string;
+  met: boolean;
+  /** Frozen with the rule in force on the day, rather than worked out with today's rule. */
+  frozen: boolean;
+  measure: DayMeasure;
+  rating: number | null;
+}
+
+export interface Chain {
+  minimum: DailyMinimum;
+  /** Oldest first, ending today. */
+  days: ChainDay[];
+  /** Consecutive days meeting the minimum, up to today (today still counts as open until it's met). */
+  current: number;
+  todayMet: boolean;
+}
+
+/** Momentum statistics over a window of days. Descriptive only: every figure carries its sample size. */
+export interface MomentumStats {
+  from: string;
+  to: string;
+  days: number;
+  perDay: { date: string; focusMinutes: number; sessions: number; met: boolean; wakeAt: string | null; workStartAt: string | null; rating: number | null }[];
+  perWeek: { weekStart: string; focusMinutes: number; daysWithFocus: number }[];
+  /** Starter sessions and focus blocks: how many were started and how they ended. */
+  starters: { started: number; keptGoing: number; stopped: number; abandoned: number };
+  blocks: { started: number; completed: number; stopped: number; abandoned: number };
+  /** Minutes from waking to the first session, over days with both logged. */
+  wakeToWork: { n: number; median: number | null; min: number | null; max: number | null };
+  /** Average day rating grouped by when work started. */
+  ratingByStart: { bucket: string; n: number; avgRating: number | null }[];
+  daysMet: number;
+  ratedDays: number;
+}

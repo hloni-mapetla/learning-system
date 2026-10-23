@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { dirname, join } from 'node:path';
-import { NotFoundError, parseKindleClippings, schemas, ValidationError, type Loom } from '@loom/core';
+import { MINIMUM_KINDS, NotFoundError, parseKindleClippings, resolveDay, schemas, ValidationError, type Loom } from '@loom/core';
 
 const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
 const num = (v: unknown) => (typeof v === 'string' && v !== '' ? Number(v) : undefined);
@@ -207,6 +207,19 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
   r.post('/days/:date/routine/:itemId', (req, res) => {
     const { checked } = z.object({ checked: z.boolean() }).parse(req.body);
     res.json(loom.days.check(req.params.date, req.params.itemId, checked));
+  });
+  r.put('/days/:date/rating', (req, res) => {
+    const b = z.object({ rating: z.number().int().min(1).max(5), note: z.string().optional() }).parse(req.body);
+    res.json(loom.momentum.rate(resolveDay(req.params.date), b.rating, b.note));
+  });
+  r.get('/done', (req, res) => res.json(loom.tasks.doneOn(resolveDay(str(req.query.date)))));
+
+  // ---- momentum: the daily minimum, the chain and stats ----
+  r.get('/momentum/chain', (req, res) => res.json(loom.momentum.chain({ days: num(req.query.days) })));
+  r.get('/momentum/stats', (req, res) => res.json(loom.momentum.stats({ days: num(req.query.days) })));
+  r.put('/momentum/minimum', (req, res) => {
+    const b = z.object({ kind: z.enum(MINIMUM_KINDS), value: z.number().int().min(1).max(600) }).parse(req.body);
+    res.json(loom.momentum.setMinimum(b));
   });
   r.get('/routine', (_req, res) => res.json(loom.days.routine()));
   r.post('/routine', (req, res) => {

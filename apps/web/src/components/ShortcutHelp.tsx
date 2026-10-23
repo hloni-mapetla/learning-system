@@ -13,6 +13,7 @@ const GROUPS: [string, [string, string][]][] = [
       ['g f', 'Focus view (running session)'],
       ['g w', 'Morning: wake, routine, first thing'],
       ['g p', 'Plan tomorrow'],
+      ['g l', 'Progress: chain, days, patterns'],
       ['g s', 'Go to sources'],
       ['g t', 'Go to today'],
       ['g n', 'Go to notes'],
@@ -61,12 +62,21 @@ const GROUPS: [string, [string, string][]][] = [
     ],
   ],
   [
+    'Progress',
+    [
+      ['[ / ]', 'Previous / next day (or ← / →)'],
+      ['1–5', 'Rate the selected day'],
+      ['r', 'Write the day’s one line'],
+    ],
+  ],
+  [
     'Plan tomorrow',
     [
       ['↵', 'Next / choose'],
       ['j / k', 'Move'],
+      ['1–5', 'Rate the day'],
       ['n', 'New task / write a new step'],
-      ['s', 'No set start time'],
+      ['s', 'Skip the rating / no set start time'],
       ['← / h', 'Back a step'],
       ['esc', 'Close'],
     ],

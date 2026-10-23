@@ -176,6 +176,26 @@ describe('schema v3 migration', () => {
     loom.close();
   });
 
+  it('v6 → v7 adds the minimum snapshot and rating time to days without touching them', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'loom-mig7-'));
+    const path = join(dir, 'loom.db');
+    buildV2(path);
+    const v6 = new Db(path, { migrateTo: 6, backupDir: null });
+    v6.exec(`INSERT INTO days (date, wake_at, first_task_id, target_start, rating, created_at, updated_at)
+               VALUES ('2026-10-21', '2026-10-21T06:10:00.000Z', 'T1', '08:30', 4, 'x', 'x');`);
+    const before = v6.all('SELECT * FROM days');
+    const tasks = v6.all('SELECT * FROM tasks ORDER BY id');
+    v6.close();
+    const loom = createLoom({ dbPath: path, embedder: null, db: { backupDir: join(dir, 'backups') } });
+    const after = loom.db.all<Record<string, unknown>>('SELECT * FROM days');
+    expect(after.map(({ minimum_met, minimum_rule, rated_at, ...rest }) => rest)).toEqual(before);
+    expect(after[0]).toMatchObject({ minimum_met: null, minimum_rule: null, rated_at: null });
+    expect(loom.db.all('SELECT * FROM tasks ORDER BY id')).toEqual(tasks);
+    expect(loom.db.all('PRAGMA foreign_key_check')).toEqual([]);
+    expect(loom.days.get('2026-10-21')).toMatchObject({ rating: 4, targetStart: '08:30' });
+    loom.close();
+  });
+
   it('does not back up a brand-new database', () => {
     const dir = mkdtempSync(join(tmpdir(), 'loom-new-'));
     const loom = createLoom({ dbPath: join(dir, 'loom.db'), embedder: null, db: { backupDir: join(dir, 'backups') } });

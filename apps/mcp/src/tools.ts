@@ -1046,6 +1046,7 @@ export function registerTools(server: McpServer, loom: Loom) {
     target_start: d.targetStart,
     ...(d.plannedAt ? { planned_at: d.plannedAt, planned_by: d.plannedBy } : {}),
     ...(d.shutdownAt ? { shutdown_at: hm(d.shutdownAt) } : {}),
+    ...(d.rating ? { rating: d.rating, reflection: d.reflection ?? undefined } : {}),
     routine: d.routine.map((i) => ({ id: i.id, item: i.title, ...(i.optional ? { optional: true } : {}), done: !!i.checkedAt })),
   });
   const daySpec = z.string().default('today').describe('today, tomorrow, yesterday or YYYY-MM-DD (the day rolls over at 4am)');

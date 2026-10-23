@@ -251,9 +251,14 @@ export function createTasks(ctx: Ctx, review: Review) {
     }));
   }
 
-  /** What got done today (the day rolls over at 4am): tasks, steps, and tasks whose first steps were defined. */
+  /** What got done today (the day rolls over at 4am): tasks, steps, tasks whose first steps were defined, and sessions. */
   function doneToday(now = new Date()): DoneToday {
-    const d = momentumDay(now);
+    return doneOn(momentumDay(now).date);
+  }
+
+  /** What got done on a momentum date (YYYY-MM-DD). */
+  function doneOn(date: string): DoneToday {
+    const d = momentumDay(new Date(`${date}T12:00:00`));
     const p = { start: d.start.toISOString(), end: d.end.toISOString() };
     return {
       date: d.date,
@@ -282,6 +287,6 @@ export function createTasks(ctx: Ctx, review: Review) {
     };
   }
 
-  return { get, create, update, complete, remove, list, reviewTask, readingQueue, doneToday, hydrate };
+  return { get, create, update, complete, remove, list, reviewTask, readingQueue, doneToday, doneOn, hydrate };
 }
 export type Tasks = ReturnType<typeof createTasks>;

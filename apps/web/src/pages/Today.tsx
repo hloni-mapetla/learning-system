@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import type { CompleteResult, Day, DoneToday, Subtask, Task } from '@loom/core';
+import type { Chain, CompleteResult, Day, DoneToday, Subtask, Task } from '@loom/core';
 import { api, useAction, useApi } from '../lib/api';
 import { useHotkeys } from '../lib/hotkeys';
 import { useStartSession } from '../lib/session';
@@ -48,6 +48,7 @@ export function TodayPage() {
   const done = useApi<DoneToday>('/done-today');
   const day = useApi<Day>('/days/today');
   const nextDay = useApi<Day>('/days/tomorrow');
+  const chain = useApi<Chain>('/momentum/chain?days=14');
   const startFirst = useStartFirstThing(day.data);
   // The first thing stays at the top until work has started; in the evening, a nudge to plan tomorrow.
   const showFirst = !!day.data?.firstThing && !day.data.workStartAt;
@@ -229,6 +230,17 @@ export function TodayPage() {
       <aside className="space-y-8">
         <Section title={`Done today${doneN ? ` · ${doneN}` : ''}`}>
           <DoneList done={done.data} />
+          {chain.data && (
+            <Link to="/progress" className="mt-3 flex items-center gap-2 text-xs text-faint hover:text-accent">
+              <span className="flex gap-0.5" aria-hidden>
+                {chain.data.days.slice(-7).map((d) => (
+                  <span key={d.date} className={`size-2 rounded-sm ${d.met ? 'bg-accent' : 'bg-sunken'}`} />
+                ))}
+              </span>
+              {chain.data.todayMet ? 'Minimum met today' : 'Minimum not met yet'}
+              {chain.data.current > 1 && ` · ${chain.data.current} days in a row`}
+            </Link>
+          )}
         </Section>
         <Section title="Reading queue" actions={<Link to="/sources" className="text-xs text-accent">all sources</Link>}>
           {queue.data?.length ? (

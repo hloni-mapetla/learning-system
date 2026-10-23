@@ -1,4 +1,5 @@
 import type { Db } from '../db.ts';
+import type { DailyMinimum } from '../types.ts';
 
 export interface Settings {
   /** FSRS target probability of recall at review time. */
@@ -16,6 +17,8 @@ export interface Settings {
   /** Focus block and the break after it. */
   focusMinutes: number;
   breakMinutes: number;
+  /** The low bar that keeps the chain going. */
+  dailyMinimum: DailyMinimum;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -29,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   starterMinutes: 10,
   focusMinutes: 45,
   breakMinutes: 10,
+  dailyMinimum: { kind: 'sessions', value: 1 },
 };
 
 export function createSettings(db: Db) {

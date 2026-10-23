@@ -44,6 +44,7 @@ export const NAV: { to: string; label: string; key: string }[] = [
   { to: '/today', label: 'Today', key: 't' },
   { to: '/morning', label: 'Morning', key: 'w' },
   { to: '/plan', label: 'Plan tomorrow', key: 'p' },
+  { to: '/progress', label: 'Progress', key: 'l' },
   { to: '/review', label: 'Review', key: 'r' },
   { to: '/sources', label: 'Sources', key: 's' },
   { to: '/notes', label: 'Notes', key: 'n' },

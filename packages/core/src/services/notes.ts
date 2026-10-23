@@ -208,8 +208,9 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
   /**
    * Append a thought to a daily note as its own paragraph, stamped with the local time. With `section`, it goes in as a
    * list item under a "## <section>" heading (created at the end of the note if missing), e.g. the focus parking lot.
+   * With `replace`, it replaces the section's items instead.
    */
-  function appendDaily(text: string, opts: { date?: string; now?: Date; section?: string } = {}): Note {
+  function appendDaily(text: string, opts: { date?: string; now?: Date; section?: string; replace?: boolean } = {}): Note {
     const t = text.trim();
     if (!t) throw new ValidationError('Nothing to append');
     const n = daily(opts.date);
@@ -226,6 +227,14 @@ export function createNotes(ctx: Ctx, tags: Tags, links: Links) {
     // Keep the section's list together: after its last item, else right under the heading.
     let end = lines.findIndex((l, i) => i > h && /^#{1,2} /.test(l));
     if (end < 0) end = lines.length;
+    // replace: the section holds just this one item (e.g. the day's rating, which can be changed).
+    if (opts.replace) {
+      for (let i = end - 1; i > h; i--) {
+        if (!lines[i].startsWith('- ')) continue;
+        lines.splice(i, 1);
+        end--;
+      }
+    }
     let last = -1;
     for (let i = h + 1; i < end; i++) if (lines[i].startsWith('- ')) last = i;
     if (last >= 0) lines.splice(last + 1, 0, item);

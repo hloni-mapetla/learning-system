@@ -8,7 +8,7 @@ import { Button, Input, Kbd } from '../components/ui';
 import { DoneList, doneCount } from '../components/DoneList';
 import { StepProgress } from '../components/TaskSteps';
 
-type Stage = 'review' | 'task' | 'step' | 'time' | 'shutdown' | 'done';
+type Stage = 'review' | 'rate' | 'task' | 'step' | 'time' | 'shutdown' | 'done';
 
 /**
  * Plan tomorrow, in the evening: look at what got done, pick ONE first task with a concrete first step, optionally a start
@@ -35,6 +35,8 @@ export function PlanPage() {
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  const [rating, setRating] = useState<number | null>(null);
+  const [reflection, setReflection] = useState('');
 
   // Start from the existing plan, if there is one.
   const seeded = useRef(false);
@@ -45,6 +47,8 @@ export function PlanPage() {
     const i = ft ? tasks.findIndex((t) => t.id === ft.task.id) : -1;
     if (i >= 0) setSel(i);
     if (day.data.targetStart) setTime(day.data.targetStart);
+    if (today.data?.rating) setRating(today.data.rating);
+    if (today.data?.reflection) setReflection(today.data.reflection);
   }, [day.data, open.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const task = tasks.find((t) => t.id === taskId) ?? null;
@@ -57,6 +61,12 @@ export function PlanPage() {
   );
   const createTask = useAction((title: string) => api.post<Task>('/tasks', { title }));
   const shutdown = useAction((b: { note?: string }) => api.post<Day>(`/days/today/shutdown`, b));
+  const rate = useAction((b: { rating: number; note: string }) => api.put('/days/today/rating', b));
+  /** End-of-day rating (optional): saved with its line to the day and its daily note. */
+  const finishRating = async () => {
+    if (rating) await rate.mutateAsync({ rating, note: reflection });
+    setStage('task');
+  };
 
   const pickTask = (t: Task) => {
     setTaskId(t.id);
@@ -87,7 +97,7 @@ export function PlanPage() {
     }
   };
   const back = () => {
-    const order: Stage[] = forToday ? ['task', 'step', 'time'] : ['review', 'task', 'step', 'time', 'shutdown'];
+    const order: Stage[] = forToday ? ['task', 'step', 'time'] : ['review', 'rate', 'task', 'step', 'time', 'shutdown'];
     const i = order.indexOf(stage);
     if (i > 0) setStage(order[i - 1]);
   };
@@ -99,7 +109,8 @@ export function PlanPage() {
       ArrowLeft: back,
       h: back,
       Enter: () => {
-        if (stage === 'review') setStage('task');
+        if (stage === 'review') setStage('rate');
+        else if (stage === 'rate') finishRating();
         else if (stage === 'task' && tasks[sel]) pickTask(tasks[sel]);
         else if (stage === 'step') {
           if (task?.singleStep && !openSteps.length) chooseStep({});
@@ -119,9 +130,10 @@ export function PlanPage() {
           setTimeout(() => document.getElementById('plan-step-input')?.focus(), 0);
         }
       },
-      s: () => stage === 'time' && finishPlan(''),
+      s: () => (stage === 'time' ? finishPlan('') : stage === 'rate' && setStage('task')),
+      ...Object.fromEntries([1, 2, 3, 4, 5].map((n) => [String(n), () => stage === 'rate' && setRating(n)])),
     },
-    [stage, sel, stepSel, tasks, task, openSteps, choice, time],
+    [stage, sel, stepSel, tasks, task, openSteps, choice, time, rating, reflection],
   );
 
   useEffect(() => {
@@ -132,7 +144,7 @@ export function PlanPage() {
 
   const stages: [Stage, string][] = forToday
     ? [['task', 'First task'], ['step', 'First step'], ['time', 'Start time']]
-    : [['review', 'Today'], ['task', 'First task'], ['step', 'First step'], ['time', 'Start time'], ['shutdown', 'Shut down']];
+    : [['review', 'Today'], ['rate', 'How it went'], ['task', 'First task'], ['step', 'First step'], ['time', 'Start time'], ['shutdown', 'Shut down']];
   const plannedStep = choice.stepTitle ?? openSteps.find((s) => s.id === choice.subtaskId)?.title ?? null;
 
   return (
@@ -160,7 +172,42 @@ export function PlanPage() {
           {day.data?.firstThing && (
             <p className="text-sm text-muted">Already planned: <b>{day.data.firstThing.task.title}</b>. You can change it.</p>
           )}
-          <Button variant="primary" onClick={() => setStage('task')}>Next: pick tomorrow's first task <Kbd>↵</Kbd></Button>
+          <Button variant="primary" onClick={() => setStage('rate')}>Next <Kbd>↵</Kbd></Button>
+        </div>
+      )}
+
+      {stage === 'rate' && (
+        <div className="space-y-4">
+          <p className="text-muted">How was today, 1 to 5? Just for you; over a few weeks it shows patterns. Skip it if you'd rather.</p>
+          <div className="flex gap-1.5">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                onClick={() => setRating(n)}
+                className={`size-10 rounded-md border font-medium tabular-nums ${rating === n ? 'border-accent bg-accent text-accent-ink' : 'border-line bg-panel hover:border-accent'}`}
+              >
+                {n}
+              </button>
+            ))}
+            <span className="ml-2 self-center text-xs text-faint">1 rough · 5 great</span>
+          </div>
+          <Input
+            value={reflection}
+            onChange={(e) => setReflection(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                finishRating();
+              }
+            }}
+            placeholder="One line about the day (optional)"
+          />
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={finishRating}>{rating ? 'Save and pick tomorrow’s first task' : 'Next'} <Kbd>↵</Kbd></Button>
+            <Button onClick={() => setStage('task')}>Skip <Kbd>s</Kbd></Button>
+          </div>
+          <p className="text-xs text-faint"><Kbd>1</Kbd>–<Kbd>5</Kbd> rate · the line goes in today's daily note under Reflection</p>
         </div>
       )}
 
