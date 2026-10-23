@@ -1,5 +1,5 @@
 import type { Ctx } from './context.ts';
-import { STEP_KINDS, type Actor, type DoneToday, type Subtask, type Task } from '../types.ts';
+import { STEP_KINDS, type Actor, type DoneToday, type Subtask, type Task, type TaskHistory } from '../types.ts';
 import type { TaskCreate, TaskPatch } from '../schemas.ts';
 import type { Review } from './review.ts';
 import type { Db } from '../db.ts';
@@ -34,11 +34,12 @@ export function toSubtask(r: any): Subtask {
 }
 
 /** Attach steps, progress, next action and the "needs a first step" flag. */
-function withSteps(t: Omit<Task, 'subtasks' | 'progress' | 'nextAction' | 'needsFirstStep'>, steps: Subtask[]): Task {
+function withSteps(t: Omit<Task, 'subtasks' | 'progress' | 'nextAction' | 'needsFirstStep' | 'timesRescheduled'>, steps: Subtask[], timesRescheduled = 0): Task {
   const done = steps.filter((x) => x.done).length;
   return {
     ...t,
     subtasks: steps,
+    timesRescheduled,
     progress: { done, total: steps.length },
     nextAction: steps.find((x) => !x.done) ?? null,
     needsFirstStep:
@@ -95,7 +96,13 @@ export function createTasks(ctx: Ctx, review: Review) {
       const st = toSubtask(r);
       steps.set(st.taskId, [...(steps.get(st.taskId) ?? []), st]);
     }
-    return rows.map((r) => withSteps(toTask(r), steps.get(r.id) ?? []));
+    const moved = new Map(
+      db.all<{ task_id: string; n: number }>(
+        `SELECT task_id, count(*) AS n FROM task_events WHERE type = 'rescheduled' AND task_id IN (SELECT value FROM json_each(?)) GROUP BY task_id`,
+        [JSON.stringify(rows.map((r) => r.id))],
+      ).map((r) => [r.task_id, r.n]),
+    );
+    return rows.map((r) => withSteps(toTask(r), steps.get(r.id) ?? [], moved.get(r.id) ?? 0));
   }
 
   function get(id: string): Task {
@@ -251,6 +258,25 @@ export function createTasks(ctx: Ctx, review: Review) {
     }));
   }
 
+  /** A task's history: each move of its due date, the sessions spent on it, and when its steps were first defined. */
+  function history(id: string): TaskHistory {
+    const t = get(id);
+    const s = db.get<{ n: number; minutes: number | null; last: string | null }>(
+      `SELECT count(*) AS n, sum((julianday(coalesce(ended_at, started_at)) - julianday(started_at)) * 1440) AS minutes, max(started_at) AS last
+       FROM sessions WHERE task_id = ? AND (outcome IS NULL OR outcome <> 'abandoned')`,
+      [id],
+    )!;
+    return {
+      taskId: id,
+      createdAt: t.createdAt,
+      rescheduled: db
+        .all<{ detail: string; at: string; created_by: Actor }>(`SELECT detail, at, created_by FROM task_events WHERE task_id = ? AND type = 'rescheduled' ORDER BY at`, [id])
+        .map((e) => ({ ...(JSON.parse(e.detail) as { from: string | null; to: string | null }), at: e.at, by: e.created_by })),
+      sessions: { count: s.n, minutes: Math.round(s.minutes ?? 0), lastAt: s.last },
+      stepsDefinedAt: db.get<{ at: string }>(`SELECT min(at) AS at FROM task_events WHERE task_id = ? AND type = 'steps_defined'`, [id])?.at ?? null,
+    };
+  }
+
   /** What got done today (the day rolls over at 4am): tasks, steps, tasks whose first steps were defined, and sessions. */
   function doneToday(now = new Date()): DoneToday {
     return doneOn(momentumDay(now).date);
@@ -287,6 +313,6 @@ export function createTasks(ctx: Ctx, review: Review) {
     };
   }
 
-  return { get, create, update, complete, remove, list, reviewTask, readingQueue, doneToday, doneOn, hydrate };
+  return { get, create, update, complete, remove, list, reviewTask, readingQueue, doneToday, doneOn, history, hydrate };
 }
 export type Tasks = ReturnType<typeof createTasks>;

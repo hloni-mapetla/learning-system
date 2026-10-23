@@ -14,6 +14,7 @@ Ground rules:
 - Tasks: talk about a task's next_action (its first unfinished step), not its vague title. When a task has needs_first_step, or the user is about to work on it, ask for the very first physical step. Breaking a task down: the user drafts the steps first; you critique each for concreteness ("could you start it in 2 minutes?") and size, suggest the smallest possible first step, then save only the steps they approve with add_subtask (authored_by "user" for their wording). Draft steps yourself only if they say "suggest for me", and save those as authored_by "claude". When all steps are done, ask whether to complete the task; never complete it yourself.
 - Starting and focus: starting is the hard part. When the user is about to begin something hard, offer a "just 10 minutes" starter on its next action (start_session, after they say yes); stopping after it still counts. If they mention a distraction during a focus block, park it (park_thought) instead of acting on it, and pick it up after the block.
 - Days: decide the night before. Planning tomorrow means one first task with a concrete first step the user names (set_first_task), optionally a target start time, then the shutdown. In the morning, get_day shows the first thing and whether work has started; offer to start it, don't add to it. The wake time is logged with log_wake when the user says they're up. Work start is recorded by the first session of the day.
+- Your own data: when you talk about the user's stats or days, say what happened with the sample size ("on the 3 days you started before 9, ratings averaged 4.0") and never claim a cause. Too few days means say so. Praise effort and starts, not outcomes; no streak pressure, no guilt about missed days.
 - IDs: every item has an id; pass ids between tools rather than titles.`;
 
 export const RATING_RUBRIC = `Map the user's answer to an FSRS rating:
@@ -134,6 +135,64 @@ Fallback, clearly secondary: if I say "suggest for me", draft the notes yourself
 
 If I say "suggest for me" at any point, draft the steps yourself, label them as your drafts, and save the approved ones with authored_by "claude".`,
   },
+  {
+    name: 'plan_tomorrow',
+    title: 'Plan tomorrow',
+    description: 'Evening wind-down: look at what got done, rate the day, pick ONE first task with a concrete first step, then shut down.',
+    args: [{ name: 'notes', description: 'Anything on your mind about tomorrow (optional)', required: false }],
+    render: (a) => `Help me plan tomorrow in Loom, then shut down for the day. Decide the night before so the morning has nothing to decide.${a.notes ? ` On my mind: "${a.notes}" ${TRUNCATION_HINT('note')}` : ''}
+
+1. Call get_day (include_done true). In two or three lines, tell me what got done today, steps defined and short starts included. Name one or two specific things. If little or nothing got done, say so plainly and kindly, without a pep talk.
+2. Ask me how today was, 1 to 5, and for one line about it if I want. Save it with rate_day (my rating, my words). If I'd rather not rate it, skip this.
+3. Ask which ONE task I want to start with tomorrow. Call list_tasks (view today, then upcoming) so you can remind me what's open, but let me choose. Only if I ask, suggest one (something due, or the one I've been avoiding, at its smallest step), and say why in a line.
+4. The first step. If the task has a next_action, ask whether that's the very first physical thing I'll do. If not, or if it has needs_first_step, ask me to name it. Check it against "could I start this in 2 minutes, half-awake?" and offer a smaller version if not. My words go in as step_title with authored_by "user".
+5. Ask if I want a start time (optional; "after breakfast" is fine as no time). Then call set_first_task (date tomorrow) with the task, the step (subtask_id or step_title) and target_start. Mention a hint from the tool in one line if there is one.
+6. Shutdown: ask where I left off today, in one line for future me (optional). Call shutdown_day with it, then say "Shutdown complete. Tomorrow starts with: <step>." and stop. Don't start new work, add tasks, or open other topics tonight unless I insist.
+
+Keep every message short. One question at a time.`,
+  },
+  {
+    name: 'get_unstuck',
+    title: 'Get unstuck',
+    description: 'For a task you keep avoiding: find what is in the way, shrink it to a step you can start now, and offer 10 minutes.',
+    args: [{ name: 'task', description: 'The task you are stuck on (title or id)', required: false }],
+    render: (a) => `I'm stuck on ${a.task ? `"${a.task}" ${TRUNCATION_HINT('task')}` : 'a task'}. Help me get moving in Loom.
+
+1. Find the task (${a.task ? `list_tasks view all_open, match "${a.task}"; get_task` : 'ask which one, then get_task'}) and read its steps, next_action and history (how often it has been moved, sessions spent on it).
+2. Ask ONE question: "What's in the way right now?" Offer these as quick options if I'm not sure: it's vague / it's too big / I don't know what done looks like / I'm dreading a part of it / I'm missing something from someone / I'm tired.
+3. Match the fix to the answer, briefly:
+   - vague → ask for the first physical action (open which file, write which sentence);
+   - too big → find a piece I could finish in 10 minutes;
+   - unclear "done" → the step is "write 3 bullets on what done looks like";
+   - dread → find the smallest piece of the dreaded part, or a way to start next to it;
+   - missing something → the step is the message or search that gets it (draft it with me if I want);
+   - tired → a 2-minute version, or agree honestly to schedule it for tomorrow's first thing (set_first_task) instead.
+   If it's been moved several times (times_rescheduled / history), ask once, without judgment, whether I still want to do it at all; dropping or deferring it on purpose is a fine answer.
+4. Agree on one step, in my words, small enough that starting feels almost silly. Save it as the next action: add_subtask with position 0 (before the other open steps) and authored_by "user".
+5. Offer "just 10 minutes on it now?" Start a starter session only if I say yes (start_session, subtask_id of that step). Then stop talking. If I come back, ask "keep going, or stop here? Stopping counts." and end_session accordingly.
+
+At most three questions before you propose a step. No motivational speeches, no productivity theory.`,
+  },
+  {
+    name: 'weekly_review',
+    title: 'Weekly review',
+    description: 'Look back at the week from your own data: what got done, when you started, what you notice, and one small change.',
+    args: [{ name: 'focus', description: 'Anything you want to look at in particular (optional)', required: false }],
+    render: (a) => `Run my weekly review in Loom.${a.focus ? ` I especially want to look at: "${a.focus}" ${TRUNCATION_HINT('focus')}` : ''}
+
+1. Call get_day_log (last 7 days) and get_momentum_stats (days 7, and days 28 for context). Show a compact picture:
+   - days meeting the daily minimum (and what the minimum is), the current chain;
+   - time in sessions, and starters that became full blocks (k of n);
+   - first thing planned vs the day's first session being on it (k of n planned days);
+   - wake-to-work gap (median, range, n) and day ratings.
+   Always give n. With fewer than ~5 data points, say it's too early to read much into it.
+2. Wins first: list what got done (tasks completed, steps finished, steps defined), briefly.
+3. Ask me what I notice, or how the week felt, before offering your own observations. Then offer at most two, phrased as questions about my own data, never as causes ("The 3 days you started before 9 you rated 4.0 on average, vs 2.5 over 4 later days. Does that match how they felt?").
+4. Stuck tasks: list_tasks (all_open). Point out at most three: ones with needs_first_step, and ones moved 3 or more times (times_rescheduled). For each, ask: keep (and name a first step), shrink, defer on purpose, or drop. Make only the changes I agree to.
+5. The minimum: if it was met on fewer than 4 of 7 days, suggest lowering it (set_daily_minimum after I agree). If it was met easily every day, leave it; a low minimum is the point. Don't raise it unless I ask.
+6. Ask me to choose ONE small thing to try next week (e.g. plan tomorrow before 9pm, a starter before checking email). Save my summary line and the experiment with append_to_daily_note, section "Weekly review", in my words.
+7. Stop there. If it's evening, offer plan_tomorrow in one line.`,
+  },
 ];
 
 export function renderGuide(): string {
@@ -147,9 +206,9 @@ export function renderGuide(): string {
   );
   return `# Loom: Claude Project instructions
 
-Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", "process reading <title>" after finishing something (you'll be asked to recall before seeing highlights), or "break down <task>".
+Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", "process reading <title>" after finishing something (you'll be asked to recall before seeing highlights), "break down <task>", "plan tomorrow" in the evening, "get unstuck" on a task you keep avoiding, or "weekly review".
 
-The same scripts are also available as MCP prompts (\`daily_review\`, \`exam_prep\`, \`connect\`, \`process_reading\`) in clients that support prompts (Claude Desktop, Claude Code: \`/mcp__loom__daily_review\`).
+The same scripts are also available as MCP prompts (\`daily_review\`, \`exam_prep\`, \`connect\`, \`process_reading\`, \`break_down\`, \`plan_tomorrow\`, \`get_unstuck\`, \`weekly_review\`) in clients that support prompts (Claude Desktop, Claude Code: \`/mcp__loom__daily_review\`).
 
 ---
 

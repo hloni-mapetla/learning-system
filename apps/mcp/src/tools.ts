@@ -15,6 +15,9 @@ import {
   type Loom,
   type Session,
   type Day,
+  MINIMUM_KINDS,
+  describeMinimum,
+  resolveDay,
   type Subtask,
   type SubtaskResult,
   type Task,
@@ -413,11 +416,12 @@ export function registerTools(server: McpServer, loom: Loom) {
       inputSchema: {
         text: z.string().min(1).describe("The learner's thought, in their words"),
         date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Defaults to today (local)'),
+        section: z.string().optional().describe('Put it as a list item under this "## heading" (e.g. "Weekly review"), created if missing'),
       },
       annotations: WRITE,
     },
-    async ({ text, date }) => {
-      const n = loom.notes.appendDaily(text, { date });
+    async ({ text, date, section }) => {
+      const n = loom.notes.appendDaily(text, { date, section });
       kick();
       return json({ id: n.id, title: n.title, chars: n.body.length });
     },
@@ -732,6 +736,7 @@ export function registerTools(server: McpServer, loom: Loom) {
     ...(t.nextAction ? { next_action: { id: t.nextAction.id, title: t.nextAction.title } } : {}),
     ...(t.needsFirstStep ? { needs_first_step: true } : {}),
     ...(t.singleStep && !t.virtual ? { single_step: true } : {}),
+    ...(t.timesRescheduled ? { times_rescheduled: t.timesRescheduled } : {}),
     ...(t.progress.total && (full || t.status === 'open') ? { steps: t.subtasks.map(stepOut) } : {}),
     ...(t.createdBy !== 'user' && !t.virtual ? { created_by: t.createdBy } : {}),
     ...(full ? { completed_at: t.completedAt ?? undefined, created_at: t.createdAt } : {}),
@@ -841,7 +846,9 @@ export function registerTools(server: McpServer, loom: Loom) {
     'get_task',
     {
       title: 'Get task',
-      description: 'One task with all its steps (done and not), progress, next_action and needs_first_step.',
+      description:
+        'One task with all its steps (done and not), progress, next_action, needs_first_step, and its history: each time its due ' +
+        'date was moved, the sessions spent on it, and when its steps were first written.',
       inputSchema: { task_id: z.string() },
       annotations: READ,
     },
@@ -850,7 +857,17 @@ export function registerTools(server: McpServer, loom: Loom) {
         const rt = loom.tasks.reviewTask();
         return json(rt ? taskOut(rt, true) : { error: 'No cards are due, so there is no review task right now.' });
       }
-      return json(taskOut(loom.tasks.get(task_id), true));
+      const h = loom.tasks.history(task_id);
+      return json({
+        ...taskOut(loom.tasks.get(task_id), true),
+        history: {
+          rescheduled: h.rescheduled.map((r) => ({ from: r.from, to: r.to, at: r.at.slice(0, 10), ...(r.by !== 'user' ? { by: r.by } : {}) })),
+          sessions: h.sessions.count,
+          minutes_in_sessions: h.sessions.minutes,
+          last_session: h.sessions.lastAt?.slice(0, 10) ?? null,
+          steps_defined: h.stepsDefinedAt?.slice(0, 10) ?? null,
+        },
+      });
     },
   );
 
@@ -1109,6 +1126,123 @@ export function registerTools(server: McpServer, loom: Loom) {
       annotations: WRITE,
     },
     async ({ date, at, clear }) => json(dayOut(loom.days.logWake(date, clear ? null : (at ?? new Date())))),
+  );
+
+
+  server.registerTool(
+    'rate_day',
+    {
+      title: 'Rate a day',
+      description:
+        "End-of-day rating, 1 (rough) to 5 (great), with an optional one-line note in the user's words. Kept on the day and written " +
+        'under "Reflection" in that day\'s daily note (a new rating replaces the old one). Ask; never guess a rating.',
+      inputSchema: { date: daySpec, rating: z.number().int().min(1).max(5), note: z.string().optional() },
+      annotations: WRITE,
+    },
+    async ({ date, rating, note }) => {
+      const r = loom.momentum.rate(resolveDay(date), rating, note);
+      kick();
+      return json(r);
+    },
+  );
+
+  server.registerTool(
+    'shutdown_day',
+    {
+      title: 'Shut down the day',
+      description:
+        "The evening shutdown, after tomorrow is planned: optionally a line on where the user left off (their words; it goes under " +
+        '"Shutdown" in the daily note), and the day is marked closed. After this, don\'t start new work with them tonight.',
+      inputSchema: { note: z.string().optional(), date: daySpec },
+      annotations: WRITE,
+    },
+    async ({ note, date }) => {
+      const d = loom.days.shutdown(date, { note });
+      kick();
+      return json({ date: d.date, shutdown_at: hm(d.shutdownAt), ...(note ? { noted: note } : {}) });
+    },
+  );
+
+  server.registerTool(
+    'get_day_log',
+    {
+      title: 'Get the day log',
+      description:
+        'One line per day (default: the last 7 days, oldest first): woke, started work, the gap, the planned first thing and whether ' +
+        "the day's first session was on it, whether the daily minimum was met, sessions and minutes, what got done, the rating and " +
+        'its line, and whether the day was shut down. For weekly reviews and "how did this week go".',
+      inputSchema: { from: z.string().optional().describe('YYYY-MM-DD'), to: z.string().optional().describe('YYYY-MM-DD, default today') },
+      annotations: READ,
+    },
+    async ({ from, to }) =>
+      json(
+        loom.momentum.dayLog({ from: from && resolveDay(from), to: to && resolveDay(to) }).map((d) => ({
+          date: d.date,
+          woke: hm(d.wakeAt),
+          started_work: hm(d.workStartAt),
+          ...(d.wakeToWorkMinutes !== null ? { wake_to_work_minutes: d.wakeToWorkMinutes } : {}),
+          first_thing: d.firstThing ? `${d.firstThing.task}${d.firstThing.step ? ` → ${d.firstThing.step}` : ''}${d.firstThing.taskStatus !== 'open' ? ` (${d.firstThing.taskStatus})` : ''}` : null,
+          ...(d.targetStart ? { target_start: d.targetStart } : {}),
+          ...(d.startedOnFirstThing !== null ? { started_on_first_thing: d.startedOnFirstThing } : {}),
+          minimum_met: d.minimumMet,
+          sessions: d.measure.sessions,
+          minutes: d.measure.focusMinutes,
+          ...(d.done.tasks.length ? { tasks_done: d.done.tasks } : {}),
+          ...(d.done.steps.length ? { steps_done: d.done.steps } : {}),
+          ...(d.done.stepsDefined.length ? { steps_defined_for: d.done.stepsDefined } : {}),
+          rating: d.rating,
+          ...(d.reflection ? { reflection: d.reflection } : {}),
+          ...(d.shutdown ? { shutdown: true } : {}),
+        })),
+      ),
+  );
+
+  server.registerTool(
+    'get_momentum_stats',
+    {
+      title: 'Get momentum stats',
+      description:
+        'Descriptive stats over the last N days (default 28): the daily minimum and current chain, days meeting it, time in sessions ' +
+        'per day and week, starters started vs kept going, focus blocks started vs run to the end, the wake-to-work gap (median, range, ' +
+        'n), and the average day rating by when work started (with n per group). Report these with their sample sizes and never as ' +
+        'causes ("on the 3 days you started before 9, ratings averaged 4.0", not "starting early makes you happier").',
+      inputSchema: { days: z.number().int().min(1).max(400).default(28) },
+      annotations: READ,
+    },
+    async ({ days }) => {
+      const st = loom.momentum.stats({ days });
+      const ch = loom.momentum.chain({ days: Math.max(days, 14) });
+      return json({
+        window: { from: st.from, to: st.to, days: st.days },
+        daily_minimum: describeMinimum(ch.minimum),
+        chain: { current: ch.current, today_met: ch.todayMet, days_met: st.daysMet, of_days: st.days },
+        minutes_in_sessions: { total: st.perDay.reduce((a, d) => a + d.focusMinutes, 0), days_with_some: st.perDay.filter((d) => d.focusMinutes > 0).length },
+        per_week: st.perWeek.map((w) => ({ week_of: w.weekStart, minutes: w.focusMinutes, days_with_some: w.daysWithFocus })),
+        starters: { started: st.starters.started, kept_going: st.starters.keptGoing, stopped_after: st.starters.stopped, discarded: st.starters.abandoned },
+        focus_blocks: { started: st.blocks.started, ran_to_end: st.blocks.completed, stopped_early: st.blocks.stopped, discarded: st.blocks.abandoned },
+        wake_to_work_minutes: st.wakeToWork,
+        rating_by_work_start: st.ratingByStart.map((r) => ({ first_session: r.bucket, n: r.n, avg_rating: r.avgRating })),
+        rated_days: st.ratedDays,
+        how_to_read: 'Descriptive only. Quote n with every figure; with fewer than ~5 days in a group, call it too few to say much.',
+      });
+    },
+  );
+
+  server.registerTool(
+    'set_daily_minimum',
+    {
+      title: 'Set the daily minimum',
+      description:
+        'Change the daily minimum that keeps the chain going: kind "sessions" (sessions started, any length), "focus_minutes", or ' +
+        '"steps" (steps done or defined, tasks completed). Keep it low enough for a bad day; suggest lowering it when it is often ' +
+        "missed, and don't raise it unprompted. Past days keep their verdict. Only after the user agrees.",
+      inputSchema: { kind: z.enum(MINIMUM_KINDS), value: z.number().int().min(1).max(600) },
+      annotations: WRITE,
+    },
+    async ({ kind, value }) => {
+      const ch = loom.momentum.setMinimum({ kind, value });
+      return json({ daily_minimum: describeMinimum(ch.minimum), chain: ch.current, today_met: ch.todayMet });
+    },
   );
 
   // ================= import & stats =================

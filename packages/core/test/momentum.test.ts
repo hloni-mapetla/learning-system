@@ -121,3 +121,52 @@ describe('momentum stats', () => {
     expect(s.perWeek.at(-1)).toEqual({ weekStart: '2026-10-19', focusMinutes: 79, daysWithFocus: 2 });
   });
 });
+
+describe('day log and task history', () => {
+  it('logs each day: morning, plan, whether the first session was on the plan, minimum, done, rating', () => {
+    const loom = testLoom();
+    const t = loom.tasks.create({ title: 'Thesis chapter 2', kind: 'write' });
+    loom.days.plan('2026-10-21', { taskId: t.id, stepTitle: 'Open draft.docx and reread 2.3', targetStart: '08:30' }, 'user', local(20, 21));
+    loom.days.logWake('2026-10-21', '07:00', NOW);
+    const s = loom.sessions.start({ kind: 'starter', taskId: t.id }, 'user', local(21, 8, 40));
+    loom.sessions.end(s.id, { now: local(21, 8, 50) });
+    loom.subtasks.complete(loom.tasks.get(t.id).subtasks[0].id);
+    loom.momentum.rate('2026-10-21', 4, 'Started on time', NOW);
+    const other = loom.tasks.create({ title: 'Grant report' });
+    loom.days.plan('2026-10-22', { taskId: other.id, stepTitle: 'Open last year PDF' }, 'user', local(21, 21));
+    loom.sessions.start({ kind: 'starter', taskId: t.id }, 'user', local(22, 9));
+
+    const log = loom.momentum.dayLog({ now: NOW });
+    expect(log.map((d) => d.date)).toEqual(['2026-10-16', '2026-10-17', '2026-10-18', '2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22']);
+    expect(log[5]).toMatchObject({
+      wakeToWorkMinutes: 100,
+      firstThing: { task: 'Thesis chapter 2', step: 'Open draft.docx and reread 2.3', taskStatus: 'open' },
+      targetStart: '08:30',
+      startedOnFirstThing: true,
+      minimumMet: true,
+      rating: 4,
+      reflection: 'Started on time',
+    });
+    expect(log[6]).toMatchObject({ startedOnFirstThing: false, minimumMet: true });
+    expect(log[0]).toMatchObject({ firstThing: null, startedOnFirstThing: null, minimumMet: false });
+    expect(() => loom.momentum.dayLog({ from: '2026-10-22', to: '2026-10-01' })).toThrow();
+  });
+
+  it('counts reschedules and sessions per task', () => {
+    const loom = testLoom();
+    const t = loom.tasks.create({ title: 'Tax return', dueDate: '2026-10-20' });
+    loom.tasks.update(t.id, { dueDate: '2026-10-22' });
+    loom.tasks.update(t.id, { dueDate: '2026-10-25' }, 'claude');
+    loom.tasks.update(t.id, { priority: 1 }); // not a move
+    expect(loom.tasks.get(t.id).timesRescheduled).toBe(2);
+    expect(loom.tasks.list({ view: 'all_open' }).find((x) => x.id === t.id)!.timesRescheduled).toBe(2);
+    const s = loom.sessions.start({ kind: 'starter', taskId: t.id }, 'user', local(22, 9));
+    loom.sessions.end(s.id, { now: local(22, 9, 6) });
+    const h = loom.tasks.history(t.id);
+    expect(h.rescheduled).toEqual([
+      expect.objectContaining({ from: '2026-10-20', to: '2026-10-22', by: 'user' }),
+      expect.objectContaining({ from: '2026-10-22', to: '2026-10-25', by: 'claude' }),
+    ]);
+    expect(h.sessions).toMatchObject({ count: 1, minutes: 6 });
+  });
+});

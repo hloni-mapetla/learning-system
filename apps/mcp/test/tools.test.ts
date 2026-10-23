@@ -55,7 +55,7 @@ describe('MCP server', () => {
     expect(tools.find((t) => t.name === 'get_due_cards')!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'create_card')!.annotations?.readOnlyHint).toBe(false);
     const { prompts } = await client.listPrompts();
-    expect(prompts.map((p) => p.name).sort()).toEqual(['break_down', 'connect', 'daily_review', 'exam_prep', 'process_reading']);
+    expect(prompts.map((p) => p.name).sort()).toEqual(['break_down', 'connect', 'daily_review', 'exam_prep', 'get_unstuck', 'plan_tomorrow', 'process_reading', 'weekly_review']);
     const p = await client.getPrompt({ name: 'exam_prep', arguments: { topic: 'heuristics' } });
     expect((p.messages[0].content as { text: string }).text).toContain('get_study_context("heuristics")');
     expect(client.getInstructions()).toContain('never reveal');
@@ -384,5 +384,61 @@ describe('MCP day rating', () => {
     const today = (await call('get_day', {})).date;
     loom.momentum.rate(today, 4, 'Good start');
     expect(await call('get_day', {})).toMatchObject({ rating: 4, reflection: 'Good start' });
+  });
+});
+
+describe('MCP Claude sessions (momentum)', () => {
+  it('annotates the new tools', async () => {
+    const { tools } = await client.listTools();
+    const ann = (n: string) => tools.find((t) => t.name === n)!.annotations!;
+    for (const n of ['get_day_log', 'get_momentum_stats', 'get_task']) expect(ann(n).readOnlyHint).toBe(true);
+    for (const n of ['rate_day', 'shutdown_day', 'set_daily_minimum', 'set_first_task', 'log_wake']) expect(ann(n).readOnlyHint).toBe(false);
+  });
+
+  it('rates and shuts down the day, then reads it back in the day log', async () => {
+    const t = loom.tasks.create({ title: 'Thesis chapter 2' });
+    const s = await call('start_session', { kind: 'starter', task_id: t.id });
+    await call('end_session', { session_id: s.id });
+    await call('rate_day', { rating: 4, note: 'Short but real' });
+    const sd = await call('shutdown_day', { note: 'Halfway through 2.3' });
+    expect(sd.noted).toBe('Halfway through 2.3');
+    const log = await call('get_day_log', {});
+    expect(log).toHaveLength(7);
+    expect(log.at(-1)).toMatchObject({ minimum_met: true, sessions: 1, rating: 4, reflection: 'Short but real', shutdown: true });
+    const body = loom.notes.daily(log.at(-1).date).body;
+    expect(body).toMatch(/## Reflection\n\n- \*\*\d\d:\d\d\*\* Rated the day 4\/5\. Short but real/);
+    expect(body).toMatch(/## Shutdown\n\n- \*\*\d\d:\d\d\*\* Halfway through 2\.3/);
+  });
+
+  it('reports stats with sample sizes and changes the minimum', async () => {
+    const st = await call('get_momentum_stats', { days: 7 });
+    expect(st).toMatchObject({ window: { days: 7 }, daily_minimum: 'Start one session (any length)', wake_to_work_minutes: { n: 0, median: null } });
+    expect(st.rating_by_work_start.every((r: any) => typeof r.n === 'number')).toBe(true);
+    expect(st.how_to_read).toMatch(/n/);
+    const m = await call('set_daily_minimum', { kind: 'focus_minutes', value: 10 });
+    expect(m.daily_minimum).toBe('10 minutes of focused work');
+  });
+
+  it('get_task shows how often a task was moved and the sessions on it', async () => {
+    const t = loom.tasks.create({ title: 'Tax return', dueDate: '2026-10-20' });
+    await call('update_task', { task_id: t.id, due: '2026-10-23' });
+    const r = await call('get_task', { task_id: t.id });
+    expect(r.times_rescheduled).toBe(1);
+    expect(r.history).toMatchObject({ rescheduled: [{ from: '2026-10-20', to: '2026-10-23', by: 'claude' }], sessions: 0 });
+    expect((await call('list_tasks', { view: 'all_open' })).find((x: any) => x.id === t.id).times_rescheduled).toBe(1);
+  });
+
+  it('weekly review and plan tomorrow ask before concluding, and keep to data without causes', async () => {
+    const w = (await client.getPrompt({ name: 'weekly_review', arguments: {} })).messages[0].content as { text: string };
+    expect(w.text).toMatch(/Always give n/);
+    expect(w.text.indexOf('Ask me what I notice')).toBeLessThan(w.text.indexOf('offer at most two'));
+    expect(w.text).toMatch(/never as causes/);
+    const p = (await client.getPrompt({ name: 'plan_tomorrow', arguments: {} })).messages[0].content as { text: string };
+    expect(p.text.indexOf('rate_day')).toBeLessThan(p.text.indexOf('set_first_task'));
+    expect(p.text.indexOf('set_first_task')).toBeLessThan(p.text.indexOf('shutdown_day'));
+    const u = (await client.getPrompt({ name: 'get_unstuck', arguments: { task: 'Tax return' } })).messages[0].content as { text: string };
+    expect(u.text).toMatch(/position 0/);
+    expect(u.text).toMatch(/only if I say yes/);
+    expect(client.getInstructions()).toMatch(/never claim a cause/);
   });
 });

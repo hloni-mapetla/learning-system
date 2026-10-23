@@ -1,5 +1,7 @@
 import type { Ctx } from './context.ts';
-import type { Chain, ChainDay, DailyMinimum, DayMeasure, MomentumStats } from '../types.ts';
+import type { Chain, ChainDay, DailyMinimum, DayLogEntry, DayMeasure, MomentumStats } from '../types.ts';
+import type { Tasks } from './tasks.ts';
+import type { Days } from './days.ts';
 import type { SettingsService } from './settings.ts';
 import type { Notes } from './notes.ts';
 import { addDays, DAY_ROLLOVER_HOUR, momentumDay, nowIso, ValidationError } from '../util.ts';
@@ -17,7 +19,7 @@ export function meets(m: DayMeasure, rule: DailyMinimum): boolean {
 }
 
 /** The daily minimum and its chain, the end-of-day rating, and descriptive stats on starting and focus. */
-export function createMomentum(ctx: Ctx, settings: SettingsService, notes: Notes) {
+export function createMomentum(ctx: Ctx, settings: SettingsService, notes: Notes, tasks: Tasks, days: Days) {
   const { db } = ctx;
 
   /** What each day in [from, to] counted: sessions started (not discarded), minutes in them, and steps. */
@@ -188,6 +190,47 @@ export function createMomentum(ctx: Ctx, settings: SettingsService, notes: Notes
     };
   }
 
-  return { measure, measures, chain, setMinimum, rate, stats };
+  /** One entry per day in [from, to] (default: the last 7 days), oldest first, for weekly reviews and "how did this week go". */
+  function dayLog(opts: { from?: string; to?: string; now?: Date } = {}): DayLogEntry[] {
+    const now = opts.now ?? new Date();
+    const to = opts.to ?? momentumDay(now).date;
+    const from = opts.from ?? addDays(to, -6);
+    if (from > to) throw new ValidationError('from must be on or before to.');
+    if (addDays(from, 366) < to) throw new ValidationError('At most a year at a time.');
+    const n = Math.round((Date.parse(`${to}T12:00:00`) - Date.parse(`${from}T12:00:00`)) / 86_400_000) + 1;
+    const ch = chain({ days: n, now: new Date(`${to}T12:00:00`) });
+    return ch.days.map((c) => {
+      const d = days.get(c.date, now);
+      const done = tasks.doneOn(c.date);
+      const firstSession = db.get<{ task_id: string | null }>(
+        `SELECT task_id FROM sessions WHERE ${DAY_OF('started_at')} = ? AND (outcome IS NULL OR outcome <> 'abandoned') ORDER BY started_at LIMIT 1`,
+        [c.date],
+      );
+      return {
+        date: c.date,
+        wakeAt: d.wakeAt,
+        workStartAt: d.workStartAt,
+        wakeToWorkMinutes: d.wakeToWorkMinutes,
+        // The step as planned (it may be done since), else whatever is next on the task.
+        firstThing: d.firstThing
+          ? {
+              task: d.firstThing.task.title,
+              step: db.get<{ title: string }>('SELECT st.title FROM days d JOIN subtasks st ON st.id = d.first_subtask_id WHERE d.date = ?', [c.date])?.title ?? d.firstThing.step?.title ?? null,
+              taskStatus: d.firstThing.task.status,
+            }
+          : null,
+        targetStart: d.targetStart,
+        startedOnFirstThing: d.firstThing && firstSession ? firstSession.task_id === d.firstThing.task.id : null,
+        minimumMet: c.met,
+        measure: c.measure,
+        done: { tasks: done.tasks.map((t) => t.title), steps: done.subtasks.map((s) => s.title), stepsDefined: done.stepsDefined.map((s) => s.taskTitle) },
+        rating: d.rating,
+        reflection: d.reflection,
+        shutdown: !!d.shutdownAt,
+      };
+    });
+  }
+
+  return { measure, measures, chain, setMinimum, rate, stats, dayLog };
 }
 export type Momentum = ReturnType<typeof createMomentum>;

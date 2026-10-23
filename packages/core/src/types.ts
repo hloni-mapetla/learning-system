@@ -183,6 +183,8 @@ export interface Task {
   nextAction: Subtask | null;
   /** Open, no steps yet, and not single-step: defining the first step is the task. */
   needsFirstStep: boolean;
+  /** How often its due date has been moved while it was open ("keeps getting moved"). */
+  timesRescheduled: number;
   /** True for computed tasks (e.g. today's reviews) that are not stored rows. */
   virtual?: boolean;
 }
@@ -355,4 +357,31 @@ export interface MomentumStats {
   ratingByStart: { bucket: string; n: number; avgRating: number | null }[];
   daysMet: number;
   ratedDays: number;
+}
+
+/** What happened to a task over time: moves, sessions on it, when its steps were defined. */
+export interface TaskHistory {
+  taskId: string;
+  createdAt: string;
+  rescheduled: { from: string | null; to: string | null; at: string; by: Actor }[];
+  sessions: { count: number; minutes: number; lastAt: string | null };
+  stepsDefinedAt: string | null;
+}
+
+/** One line per day for reviews: the morning, the plan, the minimum, what got done, the rating. */
+export interface DayLogEntry {
+  date: string;
+  wakeAt: string | null;
+  workStartAt: string | null;
+  wakeToWorkMinutes: number | null;
+  firstThing: { task: string; step: string | null; taskStatus: Task['status'] } | null;
+  targetStart: string | null;
+  /** The first session of the day was on the planned first task. */
+  startedOnFirstThing: boolean | null;
+  minimumMet: boolean;
+  measure: DayMeasure;
+  done: { tasks: string[]; steps: string[]; stepsDefined: string[] };
+  rating: number | null;
+  reflection: string | null;
+  shutdown: boolean;
 }

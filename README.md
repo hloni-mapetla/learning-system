@@ -133,7 +133,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (Settings
 }
 ```
 
-Use absolute paths, because Claude Desktop doesn't inherit your shell's `PATH`. Restart Claude Desktop. The four session styles appear under the **+** menu as prompts.
+Use absolute paths, because Claude Desktop doesn't inherit your shell's `PATH`. Restart Claude Desktop. The session styles appear under the **+** menu as prompts.
 
 ### Claude Code over HTTP (optional)
 
@@ -158,7 +158,7 @@ Then go to claude.ai → **Settings → Connectors → Add custom connector**, e
 
 ### A Claude Project for studying
 
-Create a Project (e.g. "Study"), enable the Loom connector, and paste [docs/claude-project-guide.md](docs/claude-project-guide.md) into its instructions. That file is generated from the same source as the MCP prompts (`loom guide`), so they never disagree. Chats in the Project then understand "daily review", "exam prep on …", "connect …" and "process reading". This route works everywhere, including on mobile, where MCP prompts aren't shown.
+Create a Project (e.g. "Study"), enable the Loom connector, and paste [docs/claude-project-guide.md](docs/claude-project-guide.md) into its instructions. That file is generated from the same source as the MCP prompts (`loom guide`), so they never disagree. Chats in the Project then understand "daily review", "exam prep on …", "connect …", "process reading", "break down …", "plan tomorrow", "get unstuck" and "weekly review". This route works everywhere, including on mobile, where MCP prompts aren't shown.
 
 ---
 
@@ -170,6 +170,9 @@ Create a Project (e.g. "Study"), enable the Loom connector, and paste [docs/clau
 | **Exam prep on X** | Uses `get_study_context` to gather your notes, sources, weakest cards and recent failures on the topic. It asks about 60% recall and 40% synthesis questions, probes with Socratic follow-ups, records reviews for existing cards, and proposes new cards for the gaps. |
 | **Connect** | Takes a note, runs `find_connections` (unlinked semantic neighbours from *other* sources), judges each candidate, and proposes typed links with rationales plus synthesis cards. It saves only what you approve. |
 | **Break down a task** | You name a task and draft its first few steps yourself. Claude critiques each for concreteness ("could you start it in 2 minutes?") and size, suggests the smallest possible first step, and saves only the steps you approve. If you can't name any step, the first step becomes defining what done looks like. Say "suggest for me" for Claude's draft, marked as Claude's. |
+| **Plan tomorrow** | Evening wind-down. Claude reflects back what got done today (short starts and defined steps included), asks for a 1–5 rating and a line, then asks which **one** task you'll start with tomorrow and its first physical step in your words, checking it's startable half-awake. It saves the plan, asks where you left off, shuts the day down, and stops. |
+| **Get unstuck** | For a task you keep avoiding. Claude reads its steps and history (how often it's been moved, time spent on it), asks one question (what's in the way?) and matches the fix: a physical first action, a 10-minute piece, defining *done*, the smallest bit of the dreaded part, or the message that gets what's missing. If it's been moved a lot, it asks once whether you still want it. It saves the agreed step as the next action and offers "just 10 minutes" now. |
+| **Weekly review** | Pulls the day log and stats for the week: days meeting the minimum, time in sessions, starters kept going, whether days started on the planned first thing, the wake-to-work gap and ratings, always with sample sizes and never as causes. Wins first; then it asks what *you* notice before offering at most two observations as questions. It points out up to three stuck tasks, suggests lowering the minimum if it was often missed, and asks you to pick one small thing to try next week (saved under *Weekly review* in the daily note). |
 | **Process reading** | Generation-first. It imports any highlights silently, then asks what you remember *before* showing them, and saves your recall word for word. It compares the recall with the highlights and tells you what you missed and got wrong, sometimes asking you to retrieve a miss from a cue first. Then **you** draft the 3–7 concept and claim notes and Claude critiques them for accuracy, one idea per note, the missing *why* and connections (you name connections first). Cards follow, with your misses first. Say "suggest for me" if you want Claude to draft, and those notes are marked as Claude's. |
 
 Ratings use this rubric: **again** = not recalled or wrong (or only after the answer was given); **hard** = core idea with a significant gap, or needed a hint; **good** = correct and essentially complete; **easy** = instant, complete and confident. When a rating is borderline, Claude chooses the lower one.
@@ -184,12 +187,13 @@ Ratings use this rubric: **again** = not recalled or wrong (or only after the an
 | Read | `search_knowledge(query, semantic=true)`, `list_notes(scope=standalone\|sourced, since?)`, `get_note`, `get_source`, `list_sources`, `get_related(id)`, `find_connections(id \| topic)`, `get_study_context(topic)`, `list_tags` |
 | Write | `create_source`, `update_source`, `create_note(authored_by)` (omit `source_id` for a standalone note), `append_to_daily_note(text)`, `update_note`, `create_card`, `update_card`, `create_link`, `import_highlights` |
 | Recall first | `start_recall(source_id)`, `save_recall(source_id, text)`, `skip_recall`, `get_recall_review(source_id)` (recall next to highlights, with a similarity hint per highlight) |
-| Tasks | `list_tasks(view)` (today, upcoming, all_open, done, reading_queue; each task with its steps, progress, `next_action` and `needs_first_step`), `get_task`, `create_task(authored_by, single_step)`, `complete_task`, `update_task` |
+| Tasks | `list_tasks(view)` (today, upcoming, all_open, done, reading_queue; each task with its steps, progress, `next_action`, `needs_first_step` and `times_rescheduled`), `get_task` (plus its history: moves, sessions, when steps were defined), `create_task(authored_by, single_step)`, `complete_task`, `update_task` |
 | Steps | `add_subtask(task_id, steps[], position?, authored_by)`, `update_subtask`, `complete_subtask(undo?)`, `reorder_subtasks`, `delete_subtask` |
 | Sessions | `start_session(kind=starter\|focus, task_id?, subtask_id?)`, `end_session(keep_going?, abandon?)`, `get_sessions(from?, to?)` (the live timer and the log), `park_thought(text)` |
-| Days | `get_day(date=today\|tomorrow\|YYYY-MM-DD, include_done?)` (wake, work start, first thing, routine, shutdown), `set_first_task(task_id, subtask_id? \| step_title?, target_start?, clear?)`, `log_wake(at?)` |
+| Days | `get_day(date=today\|tomorrow\|YYYY-MM-DD, include_done?)` (wake, work start, first thing, routine, shutdown), `set_first_task(task_id, subtask_id? \| step_title?, target_start?, clear?)`, `log_wake(at?)`, `rate_day(rating, note?)`, `shutdown_day(note?)` |
+| Momentum | `get_day_log(from?, to?)` (one line per day: morning, plan, minimum, done, rating), `get_momentum_stats(days)` (chain, time in sessions, starters kept going, blocks completed, wake-to-work gap, rating by start time; all with sample sizes), `set_daily_minimum(kind, value)` |
 
-Prompts: `daily_review`, `exam_prep`, `connect`, `process_reading`, `break_down`.
+Prompts: `daily_review`, `exam_prep`, `connect`, `process_reading`, `break_down`, `plan_tomorrow`, `get_unstuck`, `weekly_review`.
 
 Notes on behavior:
 - Read tools carry `readOnlyHint`; write tools are annotated as writes, so clients can ask before running them.
