@@ -17,6 +17,8 @@ export interface Settings {
   /** Focus block and the break after it. */
   focusMinutes: number;
   breakMinutes: number;
+  /** Mix the day's review across notes, sources and topics (false: plain priority order). */
+  interleave: boolean;
   /** The low bar that keeps the chain going. */
   dailyMinimum: DailyMinimum;
 }
@@ -32,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = {
   starterMinutes: 10,
   focusMinutes: 45,
   breakMinutes: 10,
+  interleave: true,
   dailyMinimum: { kind: 'sessions', value: 1 },
 };
 

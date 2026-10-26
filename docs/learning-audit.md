@@ -210,7 +210,7 @@ Each phase below ends with `npm test` and `npm run typecheck` passing, a commit 
 - **Shortcuts:** `r` focuses the recall box on the source page, `⌘↵` saves it, `s` skips it, and `n`/`N` add a concept or claim. All of these are listed under `?`.
 - **First-use note** in the recall box: "The first 2–3 weeks will feel harder than rereading. That feeling is the effort that makes it stick." Used again in H.
 
-### Phase B: interleaved review (principle 4)
+### Phase B: interleaved review (principle 4) — done
 
 - **`review.due()` separates *selection* from *ordering*.**
   - Selection is unchanged in priority (learning, then the most overdue reviews, then new cards within quota), so `limit` still drops the right cards.

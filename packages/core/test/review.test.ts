@@ -144,8 +144,10 @@ describe('FSRS scheduling', () => {
     const n1 = basic(loom, 'new1');
     basic(loom, 'new2');
     basic(loom, 'new3');
-    const due = loom.review.due({ now: T0 });
+    const due = loom.review.due({ now: T0, order: 'scheduled' });
     expect(due.map((c) => c.front)).toEqual(['learning', 'review', 'new1', 'new2']);
+    // Interleaving reorders the same selection.
+    expect(loom.review.due({ now: T0 }).map((c) => c.front).sort()).toEqual(['learning', 'new1', 'new2', 'review']);
     // Introducing a new card today uses up quota.
     loom.review.record(n1.id, 'good', { now: T0 });
     expect(loom.review.due({ now: at(1) }).filter((c) => c.state === 'new')).toHaveLength(1);

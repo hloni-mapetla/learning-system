@@ -1,6 +1,6 @@
 import { fsrs, type Card as FsrsCard } from 'ts-fsrs';
 import type { Ctx } from './context.ts';
-import type { Actor, CardStateName, CardType, CardView, ItemType } from '../types.ts';
+import type { Actor, CardStateName, CardType, CardView, ItemType, PromptKind } from '../types.ts';
 import { CARD_STATES } from '../types.ts';
 import type { CardCreate, CardPatch, ItemRefInput } from '../schemas.ts';
 import type { Tags } from './tags.ts';
@@ -17,6 +17,7 @@ export interface CardRow {
   rubric: string | null;
   note_id: string | null;
   cloze_index: number | null;
+  prompt_kind: PromptKind;
   suspended: number;
   created_by: Actor;
   due: string;
@@ -114,6 +115,7 @@ export function createCards(ctx: Ctx, tags: Tags) {
         back: r.back,
         noteId: r.note_id,
         clozeIndex: r.cloze_index,
+        promptKind: r.prompt_kind ?? 'recall',
         origin: r.origin,
         suspended: !!r.suspended,
         createdBy: r.created_by,
@@ -158,6 +160,7 @@ export function createCards(ctx: Ctx, tags: Tags) {
     front: string;
     back?: string;
     rubric?: string | null;
+    promptKind?: PromptKind;
     noteId?: string | null;
     clozeIndex?: number | null;
     createdBy: Actor;
@@ -167,10 +170,10 @@ export function createCards(ctx: Ctx, tags: Tags) {
     const id = newId();
     const now = nowIso();
     db.run(
-      `INSERT INTO cards (id, type, origin, front, back, rubric, note_id, cloze_index, created_by, due, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO cards (id, type, origin, front, back, rubric, note_id, cloze_index, prompt_kind, created_by, due, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, fields.type, fields.origin ?? 'manual', fields.front, fields.back ?? '', fields.rubric ?? null, fields.noteId ?? null,
-        fields.clozeIndex ?? null, fields.createdBy, now, now, now],
+        fields.clozeIndex ?? null, fields.promptKind ?? 'recall', fields.createdBy, now, now, now],
     );
     for (const r of fields.refs) db.run('INSERT OR IGNORE INTO card_refs (card_id, ref_type, ref_id) VALUES (?, ?, ?)', [id, r.type, r.id]);
     if (fields.tags?.length) tags.set('card', id, fields.tags);

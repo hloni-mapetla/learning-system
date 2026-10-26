@@ -19,6 +19,7 @@ import { createSubtasks } from './services/subtasks.ts';
 import { createSessions } from './services/sessions.ts';
 import { createDays } from './services/days.ts';
 import { createMomentum } from './services/momentum.ts';
+import { createPractice } from './services/practice.ts';
 import { createGraph } from './services/graph.ts';
 import { createStats } from './services/stats.ts';
 import { createImporter } from './services/importer.ts';
@@ -47,6 +48,8 @@ export { STALE_AFTER_MINUTES, type StartSession } from './services/sessions.ts';
 export { SHUTDOWN_HEADING, type PlanInput } from './services/days.ts';
 export { REFLECTION_HEADING, meets } from './services/momentum.ts';
 export type { RecallStatus, RecallComparison } from './services/processing.ts';
+export type { PracticeSet, PracticeCard, ConfusablePair } from './services/practice.ts';
+export { REVIEW_CONTEXTS, type ReviewContext } from './services/review.ts';
 
 export interface LoomOptions {
   /** Path to the SQLite file. Defaults to $LOOM_DB or ~/.loom/loom.db. */
@@ -82,6 +85,7 @@ export function createLoom(opts: LoomOptions = {}) {
   const topics = createTopics(ctx, search);
   const related = createRelated(ctx, links, search, index);
   const study = createStudy(ctx, cards, review, topics);
+  const practice = createPractice(ctx, cards, topics, related, settings);
   const tasks = createTasks(ctx, review);
   const subtasks = createSubtasks(ctx, tasks);
   const sessions = createSessions(ctx, tasks, settings, notes);
@@ -135,6 +139,7 @@ export function createLoom(opts: LoomOptions = {}) {
     topics,
     related,
     study,
+    practice,
     tasks,
     subtasks,
     sessions,

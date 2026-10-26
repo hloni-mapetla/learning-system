@@ -1,6 +1,6 @@
 // Input schemas shared by the REST API and MCP tools. Patch schemas carry no defaults on purpose.
 import { z } from 'zod';
-import { CARD_TYPES, NOTE_KINDS, RATINGS, SOURCE_KINDS, SOURCE_METHODS, SOURCE_STATUSES, TASK_KINDS, TYPED_LINK_RELS } from './types.ts';
+import { CARD_TYPES, NOTE_KINDS, PROMPT_KINDS, RATINGS, SOURCE_KINDS, SOURCE_METHODS, SOURCE_STATUSES, TASK_KINDS, TYPED_LINK_RELS } from './types.ts';
 
 const actor = z.enum(['user', 'claude', 'system']);
 
@@ -57,6 +57,7 @@ export const CardCreate = z.object({
   front: z.string().trim().min(1),
   back: z.string().optional(),
   rubric: z.string().nullish(),
+  promptKind: z.enum(PROMPT_KINDS).optional(),
   refs: z.array(ItemRefInput).optional(),
   tags: tags.optional(),
 });

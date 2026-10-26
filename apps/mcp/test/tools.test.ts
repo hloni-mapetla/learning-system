@@ -55,7 +55,7 @@ describe('MCP server', () => {
     expect(tools.find((t) => t.name === 'get_due_cards')!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === 'create_card')!.annotations?.readOnlyHint).toBe(false);
     const { prompts } = await client.listPrompts();
-    expect(prompts.map((p) => p.name).sort()).toEqual(['break_down', 'connect', 'daily_review', 'exam_prep', 'get_unstuck', 'plan_tomorrow', 'process_reading', 'weekly_review']);
+    expect(prompts.map((p) => p.name).sort()).toEqual(['break_down', 'connect', 'daily_review', 'exam_prep', 'get_unstuck', 'interleaved_practice', 'plan_tomorrow', 'process_reading', 'weekly_review']);
     const p = await client.getPrompt({ name: 'exam_prep', arguments: { topic: 'heuristics' } });
     expect((p.messages[0].content as { text: string }).text).toContain('get_study_context("heuristics")');
     expect(client.getInstructions()).toContain('never reveal');
@@ -440,5 +440,55 @@ describe('MCP Claude sessions (momentum)', () => {
     expect(u.text).toMatch(/position 0/);
     expect(u.text).toMatch(/only if I say yes/);
     expect(client.getInstructions()).toMatch(/never claim a cause/);
+  });
+});
+
+describe('MCP interleaved practice', () => {
+  it('serves a practice set across two topics, confusable pairs, and records practice reviews', async () => {
+    const { tools } = await client.listTools();
+    for (const n of ['get_practice_set', 'get_confusable_pairs']) expect(tools.find((t) => t.name === n)!.annotations!.readOnlyHint).toBe(true);
+    // Cards on both seeded notes (psychology and forecasting), reviewed once so they can be practised.
+    for (const id of [ids.ease, ids.outside]) {
+      for (const c of loom.cards.list({ noteId: id }).items) loom.review.record(c.id, 'good');
+    }
+    const [extra] = loom.cards.create({ type: 'basic', front: 'Who wrote Superforecasting?', back: 'Tetlock', refs: [{ type: 'note', id: ids.outside }] });
+    loom.review.record(extra.id, 'good');
+    loom.links.create({ from: { type: 'note', id: ids.ease }, to: { type: 'note', id: ids.outside }, rel: 'related', rationale: 'fluency and belief' });
+
+    const set = await call('get_practice_set', { topics: ['psychology', 'forecasting'], size: 10 });
+    expect(set.topics.map((t: any) => t.topic)).toEqual(['psychology', 'forecasting']);
+    expect(set.cards.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(set.cards.map((c: any) => c.topic))).toEqual(new Set(['psychology', 'forecasting']));
+    expect(set.cards[0].answer).toBeDefined(); // for grading only
+    await expect(call('get_practice_set', { topics: ['psychology'] })).rejects.toThrow();
+
+    const pairs = await call('get_confusable_pairs', { topics: ['psychology', 'forecasting'] });
+    expect(pairs[0]).toMatchObject({ reason: 'related', a: { title: 'Cognitive ease' }, b: { title: 'Outside view' } });
+
+    await call('record_review', { card_id: set.cards[0].id, rating: 'good', context: 'practice' });
+    expect(loom.db.get<{ context: string }>('SELECT context FROM review_logs ORDER BY rowid DESC LIMIT 1')!.context).toBe('practice');
+    await call('record_review', { card_id: extra.id, rating: 'good' });
+    expect(loom.db.get<{ context: string }>('SELECT context FROM review_logs ORDER BY rowid DESC LIMIT 1')!.context).toBe('daily');
+  });
+
+  it('creates a discrimination card referencing both notes', async () => {
+    const [c] = await call('create_card', {
+      type: 'open',
+      front: 'A pundit sounds sure because the story is vivid. Which idea applies, and why not the other?',
+      rubric: 'Cognitive ease: fluency feels like truth; not the outside view (no base rate involved).',
+      prompt_kind: 'discriminate',
+      refs: [{ type: 'note', id: ids.ease }, { type: 'note', id: ids.outside }],
+    });
+    expect(loom.cards.get(c.id).promptKind).toBe('discriminate');
+  });
+
+  it('the prompt mixes cards with discrimination questions and records cards as practice', async () => {
+    const p = await client.getPrompt({ name: 'interleaved_practice', arguments: { topics: 'psychology, forecasting' } });
+    const text = (p.messages[0].content as { text: string }).text;
+    expect(text).toMatch(/get_practice_set/);
+    expect(text).toMatch(/get_confusable_pairs/);
+    expect(text).toMatch(/Why not the other one/);
+    expect(text).toMatch(/context "practice"/);
+    expect(text).toMatch(/refs to BOTH notes/);
   });
 });

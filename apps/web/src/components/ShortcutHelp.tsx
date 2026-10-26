@@ -124,6 +124,8 @@ const GROUPS: [string, [string, string][]][] = [
       ['u', 'Undo last'],
       ['!', 'Suspend card'],
       ['o', 'Open source note'],
+      ['m', 'Mix topics (interleaved practice)'],
+      ['esc', 'Back to the daily review'],
     ],
   ],
 ];

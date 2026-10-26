@@ -9,6 +9,9 @@ export const SOURCE_METHODS = ['recall_first', 'highlights_first'] as const;
 export const LINK_RELS = ['wikilink', 'supports', 'contradicts', 'example_of', 'prerequisite_of', 'related'] as const;
 export const TYPED_LINK_RELS = ['supports', 'contradicts', 'example_of', 'prerequisite_of', 'related'] as const;
 export const CARD_TYPES = ['basic', 'cloze', 'open', 'synthesis'] as const;
+/** What an open card asks for: plain recall, a why/how explanation, a connection, or telling two ideas apart. */
+export const PROMPT_KINDS = ['recall', 'why', 'how', 'connect', 'discriminate'] as const;
+export type PromptKind = (typeof PROMPT_KINDS)[number];
 export const TASK_KINDS = ['todo', 'read', 'process_highlights', 'summarize', 'write'] as const;
 export const RATINGS = ['again', 'hard', 'good', 'easy'] as const;
 export const CARD_STATES = ['new', 'learning', 'review', 'relearning'] as const;
@@ -142,6 +145,7 @@ export interface CardView {
   back: string;
   noteId: string | null;
   clozeIndex: number | null;
+  promptKind: PromptKind;
   origin: 'manual' | 'note_cloze';
   suspended: boolean;
   createdBy: Actor;

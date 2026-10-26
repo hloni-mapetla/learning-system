@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { dirname, join } from 'node:path';
-import { MINIMUM_KINDS, NotFoundError, parseKindleClippings, resolveDay, schemas, ValidationError, type Loom } from '@loom/core';
+import { MINIMUM_KINDS, REVIEW_CONTEXTS, NotFoundError, parseKindleClippings, resolveDay, schemas, ValidationError, type Loom } from '@loom/core';
 
 const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
 const num = (v: unknown) => (typeof v === 'string' && v !== '' ? Number(v) : undefined);
@@ -135,10 +135,26 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
   r.post('/review/undo', (req, res) => res.json(loom.review.undo(str(req.body?.cardId))));
   r.post('/review/:id', (req, res) => {
     const body = z
-      .object({ rating: schemas.RatingInput, durationMs: z.number().int().nonnegative().nullish(), notes: z.string().nullish() })
+      .object({
+        rating: schemas.RatingInput,
+        durationMs: z.number().int().nonnegative().nullish(),
+        notes: z.string().nullish(),
+        context: z.enum(REVIEW_CONTEXTS).optional(),
+      })
       .parse(req.body);
-    res.json(loom.review.record(req.params.id, body.rating, { grader: 'self', durationMs: body.durationMs, notes: body.notes }));
+    res.json(loom.review.record(req.params.id, body.rating, { grader: 'self', durationMs: body.durationMs, notes: body.notes, context: body.context ?? 'ui' }));
   });
+  // ---- interleaved practice across topics ----
+  r.get('/practice', async (req, res) =>
+    res.json(
+      await loom.practice.practiceSet({
+        topics: list(req.query.topics) ?? [],
+        size: num(req.query.size),
+        includeNotDue: req.query.notDue !== 'false',
+      }),
+    ),
+  );
+  r.get('/confusables', async (req, res) => res.json(await loom.practice.confusables({ topics: list(req.query.topics) ?? [], limit: num(req.query.limit) })));
   r.get('/review/forecast', (req, res) => res.json(loom.review.forecast(num(req.query.days) ?? 30)));
 
   // ---- tasks ----
@@ -332,6 +348,7 @@ export function apiRouter(loom: Loom, onWrite: () => void) {
         starterMinutes: z.number().min(1).max(60),
         focusMinutes: z.number().min(5).max(240),
         breakMinutes: z.number().min(0).max(60),
+        interleave: z.boolean(),
       })
       .partial()
       .parse(req.body);

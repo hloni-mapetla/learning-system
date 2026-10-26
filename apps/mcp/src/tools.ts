@@ -15,6 +15,8 @@ import {
   type Loom,
   type Session,
   type Day,
+  REVIEW_CONTEXTS,
+  PROMPT_KINDS,
   MINIMUM_KINDS,
   describeMinimum,
   resolveDay,
@@ -40,6 +42,7 @@ export function cardForClaude(c: CardView) {
     answer: c.answer || null,
     ...(c.hidden ? { hidden: c.hidden } : {}),
     ...(c.rubric ? { rubric: c.rubric } : {}),
+    ...(c.promptKind !== 'recall' ? { prompt_kind: c.promptKind } : {}),
     state: c.state,
     reps: c.reps,
     lapses: c.lapses,
@@ -64,7 +67,8 @@ export function registerTools(server: McpServer, loom: Loom) {
     {
       title: 'Get due cards',
       description:
-        'Cards due for spaced-repetition review now (learning steps first, then overdue reviews, then new cards within the daily limit). ' +
+        'Cards due for spaced-repetition review now: learning steps, overdue reviews, and new cards within the daily limit (one new card ' +
+        'per note per day, prerequisites first), interleaved across notes, sources and topics. Ask them in the order returned. ' +
         'Each card includes its answer/hidden text/rubric FOR GRADING ONLY: show the learner only `prompt` until they have answered. ' +
         'Optional topic: a tag, source title, or free text (matched semantically).',
       inputSchema: {
@@ -102,11 +106,15 @@ export function registerTools(server: McpServer, loom: Loom) {
         card_id: z.string(),
         rating: z.enum(RATINGS),
         notes: z.string().optional().describe("One-line assessment of the learner's answer"),
+        context: z
+          .enum(REVIEW_CONTEXTS)
+          .default('daily')
+          .describe('daily (scheduled review), practice (interleaved practice), exam (exam prep), explain'),
       },
       annotations: { ...WRITE, idempotentHint: false },
     },
-    async ({ card_id, rating, notes }) => {
-      const r = loom.review.record(card_id, rating, { grader: 'claude', notes });
+    async ({ card_id, rating, notes, context }) => {
+      const r = loom.review.record(card_id, rating, { grader: 'claude', notes, context });
       return json({
         card_id,
         rating: r.rating,
@@ -116,6 +124,44 @@ export function registerTools(server: McpServer, loom: Loom) {
         remaining_due_today: loom.review.counts().total,
       });
     },
+  );
+
+  server.registerTool(
+    'get_practice_set',
+    {
+      title: 'Get an interleaved practice set',
+      description:
+        'A practice set mixing 2 or more topics (tags, source titles or free text): due cards first, then the weakest cards that are not ' +
+        'due yet (early reviews), interleaved so neighbours differ in topic and note. New cards are left to the daily review. Each card ' +
+        'includes its answer FOR GRADING ONLY; show only `prompt`. Record answers with record_review context "practice".',
+      inputSchema: {
+        topics: z.array(z.string()).min(2),
+        size: z.number().int().min(1).max(100).default(20),
+        include_not_due: z.boolean().default(true),
+      },
+      annotations: READ,
+    },
+    async ({ topics, size, include_not_due }) => {
+      const p = await loom.practice.practiceSet({ topics, size, includeNotDue: include_not_due });
+      return json({
+        topics: p.topics,
+        cards: p.cards.map((c) => ({ ...cardForClaude(c), topic: c.practiceTopic, ...(c.isDue ? {} : { early: true }) })),
+      });
+    },
+  );
+
+  server.registerTool(
+    'get_confusable_pairs',
+    {
+      title: 'Get confusable pairs',
+      description:
+        'Pairs of ideas that are easy to mix up, across the given topics: notes linked as contradicts/related, then similar notes filed ' +
+        'under different topics. Each side has its title, topic, source and text. Use them to write discrimination questions: a short ' +
+        'new scenario or claim, then "which concept applies, and why not the other one?"',
+      inputSchema: { topics: z.array(z.string()).min(1), limit: z.number().int().min(1).max(30).default(8) },
+      annotations: READ,
+    },
+    async ({ topics, limit }) => json(await loom.practice.confusables({ topics, limit })),
   );
 
   server.registerTool(
@@ -569,13 +615,17 @@ export function registerTools(server: McpServer, loom: Loom) {
         front: z.string().min(1),
         back: z.string().optional().describe('Answer (required for basic), or model answer/extra context'),
         rubric: z.string().optional().describe('What a good answer must contain (open/synthesis)'),
+        prompt_kind: z
+          .enum(PROMPT_KINDS)
+          .optional()
+          .describe('For open/synthesis cards: recall (default), why, how, connect, or discriminate (which of two ideas applies, and why)'),
         refs: z.array(refSchema).default([]).describe('Notes/sources this card tests'),
         tags: z.array(z.string()).optional(),
       },
       annotations: WRITE,
     },
     async (a) => {
-      const cards = loom.cards.create(schemas.CardCreate.parse(a), 'claude');
+      const cards = loom.cards.create(schemas.CardCreate.parse({ ...a, promptKind: a.prompt_kind }), 'claude');
       return json(cards.map((c) => ({ id: c.id, type: c.type, prompt: c.prompt, from: c.refs.map((r) => r.title) })));
     },
   );

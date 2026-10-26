@@ -6,6 +6,7 @@ import type { RatingInput } from '../schemas.ts';
 import { CARDS_FOR_TAG_SQL, rowToFsrs, type CardRow, type Cards } from './cards.ts';
 import type { SettingsService } from './settings.ts';
 import { endOfLocalDay, localDate, newId, nowIso, NotFoundError, startOfLocalDay, ValidationError } from '../util.ts';
+import { cardKeys, hashSeed, interleave } from './interleave.ts';
 
 export function toGrade(r: RatingInput): Grade {
   const n = typeof r === 'number' ? r : RATINGS.indexOf(r) + 1;
@@ -21,7 +22,14 @@ export interface DueOpts {
   tag?: string;
   includeNew?: boolean;
   now?: Date;
+  /** Override the interleave setting: 'scheduled' is the plain priority order. */
+  order?: 'interleaved' | 'scheduled';
+  /** Seed for the interleaved order (default: today's date + a per-install seed, so the order is stable within a day). */
+  seed?: string;
 }
+
+export const REVIEW_CONTEXTS = ['ui', 'daily', 'practice', 'exam', 'explain'] as const;
+export type ReviewContext = (typeof REVIEW_CONTEXTS)[number];
 
 export interface ReviewResult {
   card: CardView;
@@ -80,9 +88,66 @@ export function createReview(ctx: Ctx, cards: Cards, settings: SettingsService) 
     return parts.join(' AND ');
   }
 
+  /** A per-install random seed, so two installs don't share an order; with the date it makes each day's order stable. */
+  function installSeed(): string {
+    let seed = settings.getRaw<string>('review_seed');
+    if (!seed) {
+      seed = newId();
+      settings.setRaw('review_seed', seed);
+    }
+    return seed;
+  }
+
   /**
-   * Cards to review now, in order: learning/relearning steps, then overdue reviews (most overdue first),
-   * then new cards within today's new-card quota.
+   * New cards to introduce, in order, up to `quota`:
+   * - at most one card per note per day (cloze siblings are spread over days; their FSRS state is never touched);
+   * - a card whose note has an unlearned prerequisite (a prerequisite_of link from a note whose cards are all still new)
+   *   goes behind the others, so the prerequisite is met first.
+   */
+  function newCards(f: string, p: Record<string, unknown>, quota: number, now: Date): CardRow[] {
+    if (quota <= 0) return [];
+    const candidates = db.all<CardRow>(`SELECT c.* FROM cards c WHERE ${f} AND c.state = 0 ORDER BY c.created_at, c.rowid LIMIT :cap`, {
+      ...p,
+      cap: quota * 4 + 50,
+    });
+    if (!candidates.length) return [];
+    const keys = cardKeys(db, candidates.map((c) => c.id));
+    const seen = new Set(
+      db
+        .all<{ note: string }>(
+          `SELECT DISTINCT c.note_id AS note FROM review_logs l JOIN cards c ON c.id = l.card_id
+           WHERE l.state = 0 AND l.reviewed_at >= ? AND c.note_id IS NOT NULL`,
+          [startOfLocalDay(now).toISOString()],
+        )
+        .map((r) => r.note),
+    );
+    const blocked = new Set(
+      db
+        .all<{ note: string }>(
+          `SELECT DISTINCT l.to_id AS note FROM links l
+           WHERE l.rel = 'prerequisite_of' AND l.from_type = 'note' AND l.to_type = 'note' AND l.to_id IS NOT NULL
+             AND EXISTS (SELECT 1 FROM cards x WHERE x.note_id = l.from_id AND x.suspended = 0)
+             AND NOT EXISTS (SELECT 1 FROM cards x WHERE x.note_id = l.from_id AND x.state <> 0)`,
+        )
+        .map((r) => r.note),
+    );
+    const ordered = [...candidates].sort((a, b) => Number(blocked.has(keys.get(a.id)?.note ?? '')) - Number(blocked.has(keys.get(b.id)?.note ?? '')));
+    const out: CardRow[] = [];
+    for (const c of ordered) {
+      const note = keys.get(c.id)?.note ?? null;
+      if (note && seen.has(note)) continue;
+      if (note) seen.add(note);
+      out.push(c);
+      if (out.length >= quota) break;
+    }
+    return out;
+  }
+
+  /**
+   * Cards to review now. Selection is by priority: learning/relearning steps, then overdue reviews (most overdue first),
+   * then new cards within today's quota (one per note, prerequisites first). Then, unless interleaving is off, the selection
+   * is interleaved: a seeded shuffle that keeps cards from the same note apart and spreads sources and topics, with
+   * learning steps pulled toward the front.
    */
   function due(opts: DueOpts = {}): CardView[] {
     const now = opts.now ?? new Date();
@@ -98,16 +163,15 @@ export function createReview(ctx: Ctx, cards: Cards, settings: SettingsService) 
     let rows = [...learning, ...reviews];
     if (opts.includeNew !== false && rows.length < limit) {
       const quota = Math.max(0, s.newCardsPerDay - newIntroducedToday(now));
-      if (quota > 0) {
-        rows = rows.concat(
-          db.all<CardRow>(`SELECT c.* FROM cards c WHERE ${f} AND c.state = 0 ORDER BY c.created_at, c.rowid LIMIT :q`, {
-            ...p,
-            q: Math.min(quota, limit - rows.length),
-          }),
-        );
-      }
+      rows = rows.concat(newCards(f, p, Math.min(quota, limit - rows.length), now));
     }
-    return cards.hydrate(rows.slice(0, limit), now);
+    rows = rows.slice(0, limit);
+    const order = opts.order ?? (s.interleave ? 'interleaved' : 'scheduled');
+    if (order === 'interleaved' && rows.length > 2) {
+      const seed = hashSeed(opts.seed ?? `${localDate(now)}:${installSeed()}`);
+      rows = interleave(rows, cardKeys(db, rows.map((r) => r.id)), seed, new Set(learning.map((r) => r.id)));
+    }
+    return cards.hydrate(rows, now);
   }
 
   /** Counts for the daily task / dashboard: what's due by the end of today. */
@@ -120,7 +184,7 @@ export function createReview(ctx: Ctx, cards: Cards, settings: SettingsService) 
     const learning = c(`SELECT count(*) AS n FROM cards c WHERE ${f} AND c.state IN (1, 3) AND c.due <= :eod`);
     const review = c(`SELECT count(*) AS n FROM cards c WHERE ${f} AND c.state = 2 AND c.due <= :eod`);
     const quota = Math.max(0, s.newCardsPerDay - newIntroducedToday(now));
-    const fresh = Math.min(quota, c(`SELECT count(*) AS n FROM cards c WHERE ${f} AND c.state = 0`));
+    const fresh = newCards(f, p, quota, now).length;
     return { learning, review, new: fresh, total: learning + review + fresh };
   }
 
@@ -139,7 +203,7 @@ export function createReview(ctx: Ctx, cards: Cards, settings: SettingsService) 
   function record(
     cardId: string,
     rating: RatingInput,
-    opts: { grader?: 'self' | 'claude'; notes?: string | null; durationMs?: number | null; now?: Date } = {},
+    opts: { grader?: 'self' | 'claude'; notes?: string | null; durationMs?: number | null; now?: Date; context?: ReviewContext } = {},
   ): ReviewResult {
     const now = opts.now ?? new Date();
     const grade = toGrade(rating);
@@ -155,11 +219,11 @@ export function createReview(ctx: Ctx, cards: Cards, settings: SettingsService) 
       );
       db.run(
         `INSERT INTO review_logs (id, card_id, rating, state, due, stability, difficulty, elapsed_days, last_elapsed_days,
-           scheduled_days, learning_steps, reviewed_at, duration_ms, grader, notes, prev_card)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           scheduled_days, learning_steps, reviewed_at, duration_ms, grader, notes, prev_card, context)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [logId, cardId, grade, log.state, log.due.toISOString(), log.stability, log.difficulty, log.elapsed_days,
           log.last_elapsed_days, log.scheduled_days, log.learning_steps, now.toISOString(), opts.durationMs ?? null,
-          opts.grader ?? 'self', opts.notes ?? null, JSON.stringify(prev)],
+          opts.grader ?? 'self', opts.notes ?? null, JSON.stringify(prev), opts.context ?? null],
       );
     });
     return {

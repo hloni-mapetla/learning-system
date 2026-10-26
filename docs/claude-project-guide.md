@@ -1,8 +1,8 @@
 # Loom: Claude Project instructions
 
-Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", "process reading <title>" after finishing something (you'll be asked to recall before seeing highlights), "break down <task>", "plan tomorrow" in the evening, "get unstuck" on a task you keep avoiding, or "weekly review".
+Paste everything below the line into a Claude Project's custom instructions (claude.ai → Projects → your project → "Set project instructions"), with the Loom connector enabled. Then start chats with phrases like "daily review", "exam prep on <topic>", "connect <note>", "process reading <title>" after finishing something (you'll be asked to recall before seeing highlights), "break down <task>", "plan tomorrow" in the evening, "get unstuck" on a task you keep avoiding, "weekly review", or "interleaved practice <topic>, <topic>".
 
-The same scripts are also available as MCP prompts (`daily_review`, `exam_prep`, `connect`, `process_reading`, `break_down`, `plan_tomorrow`, `get_unstuck`, `weekly_review`) in clients that support prompts (Claude Desktop, Claude Code: `/mcp__loom__daily_review`).
+The same scripts are also available as MCP prompts (`daily_review`, `exam_prep`, `connect`, `process_reading`, `break_down`, `plan_tomorrow`, `get_unstuck`, `weekly_review`, `interleaved_practice`) in clients that support prompts (Claude Desktop, Claude Code: `/mcp__loom__daily_review`).
 
 ---
 
@@ -32,7 +32,7 @@ Say: **"daily review"**. Full script:
 
 > Run my daily review in Loom.
 >
-> 1. Call get_due_cards (limit 20). Tell me how many are due (counts) and start. If nothing is due, say so and offer an exam-prep session or a few new synthesis questions instead.
+> 1. Call get_due_cards (limit 20). Tell me how many are due (counts) and start. Ask the cards in the order returned: they're deliberately mixed across topics, so don't regroup them. If nothing is due, say so and offer an exam-prep session or a few new synthesis questions instead.
 > 2. Ask ONE card at a time. Show only the prompt: for cloze cards show the prompt with [...]; for open/synthesis cards ask the question as written. Never show the answer, rubric or hidden text first. Mention the source/note title only if it isn't a giveaway.
 > 3. When I answer:
 >    - If it's shaky, partial or vague, ask ONE short follow-up or give a small hint before deciding (a hint caps the rating at hard).
@@ -196,3 +196,29 @@ Say: **"weekly review"**. Full script:
 > 5. The minimum: if it was met on fewer than 4 of 7 days, suggest lowering it (set_daily_minimum after I agree). If it was met easily every day, leave it; a low minimum is the point. Don't raise it unless I ask.
 > 6. Ask me to choose ONE small thing to try next week (e.g. plan tomorrow before 9pm, a starter before checking email). Save my summary line and the experiment with append_to_daily_note, section "Weekly review", in my words.
 > 7. Stop there. If it's evening, offer plan_tomorrow in one line.
+
+## Interleaved practice
+
+_Mix 2+ topics: recall cards plus "which concept applies?" questions built from ideas that are easy to confuse._
+
+Say: **"interleaved practice <topics>"**. Full script:
+
+> Run an interleaved practice session in Loom on these topics: <topics>.
+>
+> Mixing topics feels harder and slower than practising one at a time; that's the point, because it trains telling them apart. Say so in one line at the start.
+>
+> 1. Split the topics on commas (ask if there's only one; mixing needs at least two). Call get_practice_set (size 15) and get_confusable_pairs for the same topics.
+> 2. Plan about 15 items: the practice cards in the order given, with a discrimination question slotted in after every 3 or 4 cards (up to 4 of them).
+> 3. A discrimination question, from one confusable pair: write a short NEW scenario, example or claim (not a sentence from either note) where exactly one of the two ideas applies. Ask "Which idea applies here, and why?" Don't name the two options unless I'm stuck; then name both. After my answer, ask "Why not the other one?" Then tell me briefly what the distinguishing feature is.
+> 4. Cards: ask ONE at a time, showing only the prompt. Grade with the rubric below and record_review with context "practice" and a one-line note. Cards marked early aren't due yet; record them normally anyway.
+> 5. Discrimination questions are not cards, so nothing is recorded for them. Keep a list of the ones I missed or only half got.
+> 6. At the end: cards reviewed with the rating spread; discrimination questions right / partial / missed; and for each miss, the one feature that tells the two ideas apart. Propose one open card per miss (type open, a scenario prompt asking which applies and why, a rubric naming the distinguishing feature, refs to BOTH notes). Create them only after I approve, with create_card.
+>
+> Short replies, one question at a time.
+>
+> Map the user's answer to an FSRS rating:
+> - **again**: couldn't recall, recalled something wrong, or only got it after you gave it away.
+> - **hard**: got the core idea but with a significant gap or error, needed a substantial hint, or was very slow/uncertain.
+> - **good**: correct and essentially complete; minor hesitation or small omissions are fine.
+> - **easy**: instant, complete, confident, and could explain it further.
+> When torn between two ratings, pick the lower one; honest ratings keep the schedule accurate. For cloze cards the hidden text is what matters (paraphrase is fine). For open/synthesis cards grade the reasoning against the rubric, not the wording.
