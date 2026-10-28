@@ -1,5 +1,15 @@
 # Loom
 
+## Why I built this
+
+I wanted a to-do list that also has spaced repetition, note-taking and knowledge graphs, all in one place.
+
+It's built for someone who procrastinates and is trying to work on it. Hard tasks get broken down into small, concrete next steps. Small commitments keep me accountable: "just 10 minutes" starters, a deliberately low daily minimum, and a chain of days that met it. Each evening I plan the next day's first task, so the morning starts with momentum instead of a decision.
+
+The spaced repetition and note-taking come from a demotivating pattern. I'd put real work into something, learn a lot and do well, then forget most of it soon after as I moved on to other things. What, then, is the point of all that learning if I'm going to retain so little of it? Loom is my attempt to fix that. It helps me recall before I reread, connect ideas across what I've read, and review on a schedule, so the learning lasts.
+
+## What it is
+
 A local-first personal learning system: a **knowledge store** (sources, notes, highlights, atomic concepts and claims, typed links, a graph), **FSRS spaced repetition** (basic, cloze, open-ended and cross-source synthesis cards) and a **learning-aware to-do list**, all in one SQLite file. You can drive it from a fast keyboard-first web UI, or **through Claude**: an MCP server lets Claude quiz you, grade your answers, schedule reviews, and propose notes, cards and connections across everything you've read.
 
 Loom never calls the Anthropic API itself. Claude does the thinking through MCP tools, in your own Claude account.
